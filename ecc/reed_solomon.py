@@ -1,7 +1,7 @@
 from unireedsolomon import rs
 import numpy as np
 
-class ReedSolomonCodec:
+class ReedSolomonCode:
     def __init__(self, n=255, k=223):
         self.n = n  # Total codeword length
         self.k = k  # Message length

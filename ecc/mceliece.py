@@ -24,7 +24,7 @@
 
 
 import numpy as np
-from reed_solomon import ReedSolomonCodec
+from ecc.reed_solomon import ReedSolomonCodec
 
 class McEliece:
     def __init__(self, n=255, k=223, type="ReedSolomon"):

@@ -1,9 +1,9 @@
-from reed_solomon import ReedSolomonCodec
+from ecc.reed_solomon import ReedSolomonCode
 import os
 
 def test_reed_solomon():
     # Initialize the codec
-    rs_codec = ReedSolomonCodec()
+    rs_codec = ReedSolomonCode()
     
     # Test messages including longer ones
     test_messages = [

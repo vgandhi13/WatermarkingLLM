@@ -24,8 +24,8 @@ for step in range(5):
     logits = outputs.logits[:, -1, :]  # Only consider the last token
 
     # Apply top-p filtering using our LogitsProcessor
-    logits_processor = TopPLogitsWarper(top_p=0.5)
-    scores_processed, quetion_mark_token_id = logits_processor(input_ids, logits)
+    logits_processor = TopPLogitsWarper()
+    scores_processed = logits_processor(input_ids, logits)
 
     # Apply softmax to get probabilities
     probs = F.softmax(scores_processed, dim=-1)
@@ -39,12 +39,6 @@ for step in range(5):
 
     print(next_token)
     # print(token_index)
-
-    #Debug code to chec if sampled token and question mark token are same
-    if next_token.item() == quetion_mark_token_id.item():
-        print(f"The sampled token {next_token.item()} is the same as the first token passing the top-p threshold.")
-    else:
-        print(f"The sampled token {next_token.item()} is different from the first token passing the top-p threshold {quetion_mark_token_id.item()}.")
 
     # Append the token to the input for the next step
     input_ids = torch.cat((input_ids, next_token), dim=-1)

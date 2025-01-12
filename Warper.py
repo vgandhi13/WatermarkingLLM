@@ -112,7 +112,7 @@ class TopPLogitsWarper(LogitsProcessor):
             
             if sampled_token.item() == self.questionmark_token.item():
                 self.t = (self.t - self.questionmark_token_lower_prob)/(self.questionmark_token_higher_rob - self.questionmark_token_lower_prob)
-            else: # the break part in pseudocode
+            else: # the break part in pseudocode, since all the one with opposite messages removed, dont need to explicitly check
                 #self.index = h(self.prev3_generated_tokens) % len(self.E)
                 self.bit = self.E[self.index]
         else:
@@ -124,11 +124,14 @@ class TopPLogitsWarper(LogitsProcessor):
         # Remove tokens with cumulative top_p above the threshold (token with 0 are kept)
         if self.bit == 0:
             sorted_indices_to_remove = cumulative_probs < self.t
-            first_ind = (sorted_indices_to_remove == False).argmax(dim=1)[0] #use nonzero instead
+            #first_ind = (sorted_indices_to_remove == False).argmax(dim=1)[0] #use nonzero instead
+            first_ind = (sorted_indices_to_remove == False).nonzero(as_tuple=True)[1][0]
+            #print(first_ind)
             sorted_indices_to_remove[0][first_ind] = True
         else:
             sorted_indices_to_remove = cumulative_probs > self.t
-            first_ind = (sorted_indices_to_remove == True).argmax(dim=1)[0] #use nonzero instead
+            # first_ind = (sorted_indices_to_remove == True).argmax(dim=1)[0] #use nonzero instead
+            first_ind = (sorted_indices_to_remove == True).nonzero(as_tuple=True)[1][0]
         self.questionmark_token = sorted_indices[0][first_ind]
         self.questionmark_token_higher_rob = cumulative_probs[0][first_ind].item()
         self.questionmark_token_lower_prob = cumulative_probs[0][first_ind - 1].item() if first_ind > 0 else 0
@@ -155,5 +158,5 @@ ToDo:
 3. conditional sorted_indices_to_remove based on bit to be encoded
 
 Questions:
-1. Rather than doing state management in warper, is it not better to do it in main.py?
+1. Is softmax in main.py taking care of renormalizing
 '''

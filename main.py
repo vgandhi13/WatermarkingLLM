@@ -18,7 +18,7 @@ next_token = -1
 
 # Loop for generating tokens
 #while True:
-for step in range(5):
+for step in range(10):
     # Get the logits from the model
     outputs = model(input_ids)
     logits = outputs.logits[:, -1, :]  # Only consider the last token
@@ -36,13 +36,9 @@ for step in range(5):
     #break if end-of-sequence token is generated
     # if next_token == tokenizer.eos_token_id:
     #     break
-
-    print(next_token)
     # print(token_index)
 
     # Append the token to the input for the next step
     input_ids = torch.cat((input_ids, next_token), dim=-1)
     generated_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
-    print(generated_text, tokenizer.eos_token_id)
-
-
+    print(generated_text)

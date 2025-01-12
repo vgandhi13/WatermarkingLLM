@@ -44,3 +44,5 @@ for step in range(5):
     input_ids = torch.cat((input_ids, next_token), dim=-1)
     generated_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
     print(generated_text, tokenizer.eos_token_id)
+
+

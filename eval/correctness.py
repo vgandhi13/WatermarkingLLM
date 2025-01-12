@@ -15,6 +15,7 @@ prompts = ["What are the pros and cons of using Generative AI to generate code? 
            "How can Generative AI be used in education? Answer this in at least 300 words.",
            "Breifly describe some influential people in the history of Generative AI. Answer this in at least 300 words."]
 codewords = [ReedSolomonCode(255, 223).encode("Codeword"), PermutedReedSolomon(255, 223).encode("Codeword"), McEliece(255, 223).encode("Codeword")]
-watermarked = [watermarker(prompt) for prompt in prompts]
+watermarked = [watermarker(prompt, codeword) for prompt, codeword in zip(prompts, codewords)]
 #here u can do some stuff with the watermarked prompts to pretend to be an adv 
 #default testing for now
+detects = [detect(text, codeword) for text, codeword in zip(watermarked, codewords)]

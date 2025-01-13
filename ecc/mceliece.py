@@ -24,12 +24,12 @@
 
 
 import numpy as np
-from ecc.reed_solomon import ReedSolomonCodec
+from ecc.reed_solomon import ReedSolomonCode
 
 class McEliece:
     def __init__(self, n=255, k=223, type="ReedSolomon"):
         if type == "ReedSolomon":
-            self.rs = ReedSolomonCodec(n, k)
+            self.rs = ReedSolomonCode(n, k)
         else:
             raise ValueError("Invalid type. Choose from one of the available types.")
         self.n = n

@@ -12,11 +12,11 @@ model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
 model = model.to(device)
 # Example: Initial input
 
-codeword = "0110"
 input_ids = tokenizer.encode("Once upon a time", return_tensors="pt").to(device)
 next_token = -1
+logits_processor = TopPLogitsWarper(message="WATERMARKED")
 
-# Loop for generating tokens
+# Loop for generating tokens, er
 #while True:
 for step in range(10):
     # Get the logits from the model
@@ -24,7 +24,7 @@ for step in range(10):
     logits = outputs.logits[:, -1, :]  # Only consider the last token
 
     # Apply top-p filtering using our LogitsProcessor
-    logits_processor = TopPLogitsWarper()
+    
     scores_processed = logits_processor(input_ids, logits)
 
     # Apply softmax to get probabilities
@@ -40,5 +40,6 @@ for step in range(10):
 
     # Append the token to the input for the next step
     input_ids = torch.cat((input_ids, next_token), dim=-1)
+    #print(input_ids)
     generated_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
     print(generated_text)

@@ -1,5 +1,6 @@
 import inspect
 import math
+from transformers import AutoTokenizer
 from typing import Callable, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
@@ -87,6 +88,8 @@ class TopPLogitsWarper(LogitsProcessor):
         self.t = t
         self.filter_value = filter_value
         self.min_tokens_to_keep = min_tokens_to_keep
+        model_name = "gpt2"
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.prev3_generated_tokens = [] 
 
         self.questionmark_token = None
@@ -112,8 +115,8 @@ class TopPLogitsWarper(LogitsProcessor):
             if len(self.prev3_generated_tokens) == 3:
                 self.prev3_generated_tokens = self.prev3_generated_tokens[1:]
             
-            self.prev3_generated_tokens.append(sampled_token) #current token id and not the actual word
-            
+            self.prev3_generated_tokens.append(self.tokenizer.decode(sampled_token.item())) #current token id and not the actual word
+            print(self.prev3_generated_tokens)
             if sampled_token.item() == self.questionmark_token.item():
                 self.t = (self.t - self.questionmark_token_lower_prob)/(self.questionmark_token_higher_rob - self.questionmark_token_lower_prob)
             else: # the break part in pseudocode, since all the one with opposite messages removed, dont need to explicitly check

@@ -106,7 +106,7 @@ class TopPLogitsWarper(LogitsProcessor):
         #For now
         codeword = McEliece().encrypt("Asteroid".encode('utf-8'))[0]
         self.E = ''.join(format(byte, '08b') for byte in codeword)
-        self.index = 2
+        self.index = int(hashlib.md5("".join(self.prev3_generated_tokens).encode()).hexdigest(), 16) % len(self.E)
         self.bit = self.E[self.index]
 
     # @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
@@ -169,11 +169,11 @@ ToDo:
 4. run the example from docs - fix the logits
 5. write the decoding algorithm
 6. handle multiple batches
-6. work on the hash function: https://stackoverflow.com/questions/16008670/how-to-hash-a-string-into-8-digits
 
 Questions:
 1. Is softmax in main.py taking care of renormalizing
 
 Done:
 1. previous 3 tokens update, use tokenizer
+2. hash function impelemented
 '''

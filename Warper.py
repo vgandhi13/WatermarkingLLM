@@ -79,7 +79,7 @@ class TopPLogitsWarper(LogitsProcessor):
     ```
     """
 
-    def __init__(self, message, t: float = 0.5, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
+    def __init__(self, message, input_ids, t: float = 0.5, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
         t = float(t)
         if t < 0 or t > 1.0:
             raise ValueError(f"`top_p` has to be a float > 0 and < 1, but is {t}")
@@ -92,6 +92,10 @@ class TopPLogitsWarper(LogitsProcessor):
         model_name = "gpt2"
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.prev3_generated_tokens = [] 
+        for i in range(max(0, len(input_ids[0]) - 3), len(input_ids[0])):
+            token = input_ids[0, i]
+            print(i, token)
+            self.prev3_generated_tokens.append(self.tokenizer.decode(token.item()))
 
         self.questionmark_token = None
         self.questionmark_token_lower_prob = -1
@@ -176,4 +180,5 @@ Questions:
 Done:
 1. previous 3 tokens update, use tokenizer
 2. hash function impelemented
+3. added initial tokens to prev 3 appended token
 '''

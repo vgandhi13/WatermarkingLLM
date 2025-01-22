@@ -14,7 +14,7 @@ model = model.to(device)
 
 input_ids = tokenizer.encode("Once upon a time", return_tensors="pt").to(device)
 next_token = -1
-logits_processor = TopPLogitsWarper(message="WATERMARKED")
+logits_processor = TopPLogitsWarper(message="WATERMARKED", input_ids = input_ids)
 
 # Loop for generating tokens, er
 #while True:

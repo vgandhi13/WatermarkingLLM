@@ -2,6 +2,7 @@ import inspect
 import math
 from transformers import AutoTokenizer
 from typing import Callable, Iterable, List, Optional, Tuple, Union
+import hashlib
 
 import numpy as np
 import torch
@@ -103,7 +104,7 @@ class TopPLogitsWarper(LogitsProcessor):
         # self.bit = self.E[self.index]
 
         #For now
-        codeword = McEliece().encrypt("My name is Varun".encode('utf-8'))[0]
+        codeword = McEliece().encrypt("Asteroid".encode('utf-8'))[0]
         self.E = ''.join(format(byte, '08b') for byte in codeword)
         self.index = 2
         self.bit = self.E[self.index]
@@ -121,6 +122,7 @@ class TopPLogitsWarper(LogitsProcessor):
                 self.t = (self.t - self.questionmark_token_lower_prob)/(self.questionmark_token_higher_rob - self.questionmark_token_lower_prob)
             else: # the break part in pseudocode, since all the one with opposite messages removed, dont need to explicitly check
                 #self.index = h(self.prev3_generated_tokens) % len(self.E)
+                self.index  = int(hashlib.md5("".join(self.prev3_generated_tokens).encode()).hexdigest(), 16) % len(self.E)
                 self.bit = self.E[self.index]
         else:
             #handle case where size of input ids is less than 3, #add the last three tokens from promts, and and use tokenizer
@@ -164,7 +166,6 @@ Changes:
 ToDo:
 1.Fix masked_fill issue
 2. create testing suite
-3. previous 3 tokens update, use tokenizer
 4. run the example from docs - fix the logits
 5. write the decoding algorithm
 6. handle multiple batches
@@ -172,4 +173,7 @@ ToDo:
 
 Questions:
 1. Is softmax in main.py taking care of renormalizing
+
+Done:
+1. previous 3 tokens update, use tokenizer
 '''

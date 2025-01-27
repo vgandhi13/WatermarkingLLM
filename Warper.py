@@ -91,11 +91,13 @@ class TopPLogitsWarper(LogitsProcessor):
         self.min_tokens_to_keep = min_tokens_to_keep
         model_name = "gpt2"
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.prev3_generated_tokens = [] 
+        #add dummy token in begining
+        self.prev3_generated_tokens = ["<empty>","<empty>","<empty>"] 
         for i in range(max(0, len(input_ids[0]) - 3), len(input_ids[0])):
             token = input_ids[0, i]
             #print(i, token)
             self.prev3_generated_tokens.append(self.tokenizer.decode(token.item()))
+        self.prev3_generated_tokens = self.prev3_generated_tokens[-3:]
         print("Previous three tokens: ", self.prev3_generated_tokens)
 
         self.questionmark_token = None

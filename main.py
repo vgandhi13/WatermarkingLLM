@@ -29,7 +29,7 @@ for step in range(10):
 
     # Apply softmax to get probabilities
     probs = F.softmax(scores_processed, dim=-1)
-    print(probs)
+    #print(probs)
     # Sample the next token
     next_token = torch.multinomial(probs, 1)
     
@@ -40,6 +40,5 @@ for step in range(10):
 
     # Append the token to the input for the next step
     input_ids = torch.cat((input_ids, next_token), dim=-1)
-    #print(input_ids)
     generated_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
-    print(generated_text)
+    print("Text: ", generated_text)

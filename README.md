@@ -6,3 +6,10 @@ source venv/bin/activate
 pip install -r requirements.txt
 pip install torch transformers
 ```
+
+
+to run glove:
+
+wget http://nlp.stanford.edu/data/glove.6B.zip
+unzip glove.6B.zip
+python convert_glove.py  ONLY RUN THIS ONCE BC IT WILL EAT UP ALL THE MEMORY

@@ -1,10 +1,11 @@
 import numpy as np
 from gensim.models import KeyedVectors
+from sklearn.cluster import KMeans
 
 
 
 class GloveSemanticHasher:
-    def __init__(self, glove_path='glove.6B.300d.word2vec.txt'):
+    def __init__(self, glove_path='glove.6B.300d.word2vec.txt', num_clusters=1000):
         try:
             self.glove = KeyedVectors.load_word2vec_format(glove_path, binary=False)
         except FileNotFoundError:
@@ -13,6 +14,8 @@ class GloveSemanticHasher:
             )
         self.embedding_dim = self.glove.vector_size
         self.cache = {}
+        self.kmeans = KMeans(n_clusters=num_clusters, random_state=42)
+        self.cluster_centers = None
         
     def get_embedding(self, text: str) -> np.ndarray:
         words = text.lower().split()
@@ -36,21 +39,32 @@ class GloveSemanticHasher:
         embedding = embedding / np.linalg.norm(embedding)
         return embedding
     
-    def hash_3gram(self, tokens, num_buckets=10000):
+    def fit_clusters(self, texts):
+        embeddings = [self.get_embedding(" ".join(gram)) for gram in texts]
+        self.kmeans.fit(embeddings)
+        self.cluster_centers = self.kmeans.cluster_centers_
+
+        # Check for empty clusters
+        labels, counts = np.unique(self.kmeans.labels_, return_counts=True)
+        empty_clusters = set(range(self.kmeans.n_clusters)) - set(labels)
+        if empty_clusters:
+            print(f"Warning: The following clusters are empty: {empty_clusters}")
+
+    def hash_3gram(self, tokens):
         if len(tokens) != 3:
             raise ValueError("Input must be exactly 3 tokens")
             
         text = " ".join(tokens)
         embedding = self.get_embedding(text)
-        hash_value = int(sum(embedding[:4] * 1000) % num_buckets)
-        return hash_value
+        cluster_label = self.kmeans.predict([embedding])[0]
+        return cluster_label
 
 def create_3grams(text):
     words = text.split()
     return [words[i:i+3] for i in range(len(words)-2)]
 
 def test_glove_hash():
-    hasher = GloveSemanticHasher()
+    hasher = GloveSemanticHasher(num_clusters=1000)
     
     similar_3grams = [
         ["the", "cat", "sleeps"],
@@ -63,6 +77,9 @@ def test_glove_hash():
         ["she", "runs", "fast"],
         ["they", "eat", "food"],
     ]
+    
+    # Fit clusters on a sample of 3-grams
+    hasher.fit_clusters(similar_3grams + different_3grams)
     
     print("Similar 3-grams hash values:")
     for gram in similar_3grams:

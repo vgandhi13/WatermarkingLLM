@@ -43,28 +43,29 @@ class LLMJudge:
         prompt = f"""
         Please evaluate the following text by comparing it to high-quality reference texts.
         Consider these aspects:
-        1. Content Quality (1-10): Depth and accuracy of information
-        2. Writing Style (1-10): Clarity and engagement
-        3. Coherence (1-10): Logical flow and structure
-        4. Technical Accuracy (1-10): Correctness of technical details
+        1. Relevancy (1-10): How well does it follow instructions and stay on topic
+        2. Coherence (1-10): Logical flow, clarity, and organization
+        3. Informativeness (1-10): Depth and usefulness of information provided
+        4. {self.model_type.lower() == "alpaca" and "Factuality" or "Interestingness"} (1-10): {self.model_type.lower() == "alpaca" and "Accuracy of facts and claims" or "Engagement and creativity"}
+
+        Provide a concise evaluation in JSON format with scores and brief explanations (total response under 300 characters).
         
         Reference texts for comparison:
         {' '.join(reference_texts)}
         
         Text to evaluate:
         {text}
-        
-        Provide your evaluation in JSON format with scores and brief explanations.
         """
         
         try:
             response = await openai.ChatCompletion.acreate(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "You are an expert evaluator comparing text quality against benchmark datasets."},
+                    {"role": "system", "content": "You are an expert evaluator. Provide concise evaluations under 300 characters."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3
+                temperature=0.3,
+                max_tokens=300
             )
             
             evaluation = json.loads(response.choices[0].message.content)
@@ -74,13 +75,13 @@ class LLMJudge:
             print(f"Error during evaluation: {str(e)}")
             return None
 
-def compare_watermarked_pairs(original_texts: List[str], watermarked_texts: List[str], domain: str) -> Dict:
-    """Compare quality metrics between original and watermarked text pairs using FQA benchmark"""
+def compare_watermarked_pairs(original_texts: List[str], watermarked_texts: List[str]) -> Dict:
+    """Compare quality metrics between original and watermarked text pairs"""
     results = {
-        "answer_quality_diff": [],
-        "writing_style_diff": [],
-        "domain_expertise_diff": [],
-        "source_citations_diff": [],
+        "relevancy_diff": [],
+        "coherence_diff": [],
+        "informativeness_diff": [],
+        "factuality_interestingness_diff": [],
         "overall_quality_impact": []
     }
     
@@ -91,7 +92,7 @@ def compare_watermarked_pairs(original_texts: List[str], watermarked_texts: List
         water_eval = judge.evaluate_text(water)
         
         if orig_eval and water_eval:
-            for metric in ["answer_quality", "writing_style", "domain_expertise", "source_citations"]:
+            for metric in ["relevancy", "coherence", "informativeness", "factuality_interestingness"]:
                 diff = orig_eval[metric] - water_eval[metric]
                 results[f"{metric}_diff"].append(diff)
             
@@ -126,14 +127,14 @@ def main():
             watermarked_texts.append(watermarker(prompt, codeword))
         
         # Compare quality
-        results = compare_watermarked_pairs(prompts[:3], watermarked_texts, "technology")
+        results = compare_watermarked_pairs(prompts[:3], watermarked_texts)
         
         # Print results
         print(f"\nResults for {scheme_name}:")
-        print(f"Average Answer Quality Impact: {sum(results['answer_quality_diff'])/len(results['answer_quality_diff']):.2f}")
-        print(f"Average Writing Style Impact: {sum(results['writing_style_diff'])/len(results['writing_style_diff']):.2f}")
-        print(f"Average Domain Expertise Impact: {sum(results['domain_expertise_diff'])/len(results['domain_expertise_diff']):.2f}")
-        print(f"Average Source Citations Impact: {sum(results['source_citations_diff'])/len(results['source_citations_diff']):.2f}")
+        print(f"Average Relevancy Impact: {sum(results['relevancy_diff'])/len(results['relevancy_diff']):.2f}")
+        print(f"Average Coherence Impact: {sum(results['coherence_diff'])/len(results['coherence_diff']):.2f}")
+        print(f"Average Informativeness Impact: {sum(results['informativeness_diff'])/len(results['informativeness_diff']):.2f}")
+        print(f"Average {'Factuality' if model_type.lower() == 'alpaca' else 'Interestingness'} Impact: {sum(results['factuality_interestingness_diff'])/len(results['factuality_interestingness_diff']):.2f}")
         print(f"Overall Quality Impact: {sum(results['overall_quality_impact'])/len(results['overall_quality_impact']):.2f}")
 
 if __name__ == "__main__":

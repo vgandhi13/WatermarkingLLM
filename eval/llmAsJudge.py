@@ -21,13 +21,15 @@ class LLMJudge:
             # Load Alpaca evaluation set
             dataset = datasets.load_dataset("tatsu-lab/alpaca_eval")
             eval_prompts = dataset['eval']['instruction']
+            # Add word limit to each prompt
+            eval_prompts = [f"{prompt} Please limit your response to 300 words." for prompt in eval_prompts]
         else:
             # Load C4 dataset news-like subset
             dataset = datasets.load_dataset("c4", "en", streaming=True)
-            # Filter for news-like content
+            # Filter for news-like content and add word limit
             news_texts = [text for text in dataset['train'] 
                          if text.get('url', '').endswith(('.com', '.org', '.net'))]
-            eval_prompts = [text['text'] for text in news_texts]
+            eval_prompts = [f"{text['text']} Please limit your response to 300 words." for text in news_texts]
         
         # Sample 200 prompts randomly
         sampled_prompts = sample(eval_prompts, 200)
@@ -48,7 +50,7 @@ class LLMJudge:
         3. Informativeness (1-10): Depth and usefulness of information provided
         4. {self.model_type.lower() == "alpaca" and "Factuality" or "Interestingness"} (1-10): {self.model_type.lower() == "alpaca" and "Accuracy of facts and claims" or "Engagement and creativity"}
 
-        Provide a concise evaluation in JSON format with scores and brief explanations (total response under 300 characters).
+        Provide a concise evaluation in JSON format with scores and brief explanations.
         
         Reference texts for comparison:
         {' '.join(reference_texts)}
@@ -61,11 +63,10 @@ class LLMJudge:
             response = await openai.ChatCompletion.acreate(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "You are an expert evaluator. Provide concise evaluations under 300 characters."},
+                    {"role": "system", "content": "You are an expert evaluator."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,
-                max_tokens=300
+                temperature=0.3
             )
             
             evaluation = json.loads(response.choices[0].message.content)

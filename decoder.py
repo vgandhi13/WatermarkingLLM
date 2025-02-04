@@ -64,21 +64,23 @@ class WatermarkDecoder:
             print(cumulative_probs, prob_of_next_token, prob_of_start_of_token)
             
             # Determine encoded bit based on threshold
-            if cumulative_probs[0] < t:
+            if prob_of_next_token < t:
                 bit = '1'
-            elif cumulative_probs[0] > t:
+            elif prob_of_next_token > t:
                 bit = '0'
             else:
                 bit = '?'
-                t = (self.t - prob_of_start_of_token)/(prob_of_next_token - prob_of_start_of_token)
+                t = (t - prob_of_start_of_token)/(prob_of_next_token - prob_of_start_of_token)
             
             if bit != '?':
                 extracted_bits.append(bit)
                 extracted_indices.append(index)
         
-        print(t,extracted_bits, extracted_indices)
+        print(t)
+        for x, y in zip(extracted_bits, extracted_indices):
+            print('bit', x, ' in index ', y)
 
 # Example usage
 decoder = WatermarkDecoder()
-result = decoder.decode("Once upon a time", ", I had the pleasure of being directly involved in")
+result = decoder.decode("Once upon a time", ", the reality was so stern and unmimulous")
 print(result)

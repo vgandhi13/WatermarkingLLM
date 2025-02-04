@@ -11,8 +11,9 @@ class WatermarkDecoder:
         self.model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto").to(self.device)
         
         # Generate expected codeword
-        codeword = McEliece().encrypt(message.encode('utf-8'))[0]
-        self.expected_codeword = ''.join(format(byte, '08b') for byte in codeword)
+        # codeword = McEliece().encrypt(message.encode('utf-8'))[0]
+        # self.expected_codeword = ''.join(format(byte, '08b') for byte in codeword)
+        self.expected_codeword = '100110'
     
     def decode(self, prompt, generated_text):
         prompt_input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
@@ -25,7 +26,7 @@ class WatermarkDecoder:
 
         print(prev_tokens)
 
-        input_ids = self.tokenizer.encode(prev_tokens[-1] + generated_text, return_tensors="pt").to(self.device)
+        input_ids = self.tokenizer.encode(prev_tokens[-1] + generated_text, return_tensors="pt").to(self.device) #look into this
 
         print(input_ids)
         # Get logits for all tokens
@@ -35,30 +36,49 @@ class WatermarkDecoder:
         print(len(logits[0]))
         extracted_bits = []
         extracted_indices = []
+        t = 0.5
+        bit = 'unassigned'
+        index = -1
+
         
-        
-        for i in range(3, input_ids.shape[1]):
-            prev_tokens = prev_tokens[1:] + [self.tokenizer.decode(input_ids[0, i - 1].item())]
+        for i in range(len(logits[0])):
             
-            # Compute hash-based index
-            index = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.expected_codeword)
-            
+            if bit != '?':
+                index = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.expected_codeword)
+
+            prev_tokens = prev_tokens[1:] + [self.tokenizer.decode(input_ids[0, i + 1].item())]
+           
             # Compute top-p probabilities
-            sorted_logits, sorted_indices = torch.sort(logits[0, i - 3], descending=True)
+            sorted_logits, sorted_indices = torch.sort(logits[0, i], descending=True)
             cumulative_probs = F.softmax(sorted_logits, dim=-1).cumsum(dim=-1)
+            # Get the token ID of the next token in the sequence
+            next_token_id = input_ids[0, i + 1].item()
+
+            # Find the index of this token in the sorted indices
+            next_token_position = (sorted_indices == next_token_id).nonzero(as_tuple=True)[0].item()
+
+            # Retrieve its cumulative probability
+            prob_of_next_token = cumulative_probs[next_token_position].item()
+            prob_of_start_of_token = cumulative_probs[next_token_position - 1].item()
+
+            print(cumulative_probs, prob_of_next_token, prob_of_start_of_token)
             
             # Determine encoded bit based on threshold
-            if cumulative_probs[0] < 0.5:
+            if cumulative_probs[0] < t:
+                bit = '1'
+            elif cumulative_probs[0] > t:
                 bit = '0'
             else:
-                bit = '1'
+                bit = '?'
+                t = (self.t - prob_of_start_of_token)/(prob_of_next_token - prob_of_start_of_token)
             
-            extracted_bits.append(bit)
-            extracted_indices.append(index)
+            if bit != '?':
+                extracted_bits.append(bit)
+                extracted_indices.append(index)
         
-        print(extracted_bits, extracted_indices)
+        print(t,extracted_bits, extracted_indices)
 
 # Example usage
 decoder = WatermarkDecoder()
-result = decoder.decode("Once upon a time", " the kingdom flourished under wise")
+result = decoder.decode("Once upon a time", ", I had the pleasure of being directly involved in")
 print(result)

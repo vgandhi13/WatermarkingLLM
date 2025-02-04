@@ -111,8 +111,9 @@ class TopPLogitsWarper(LogitsProcessor):
         # self.bit = self.E[self.index]
 
         #For now
-        codeword = McEliece().encrypt(message.encode('utf-8'))[0]
-        self.E = ''.join(format(byte, '08b') for byte in codeword)
+        # codeword = McEliece().encrypt(message.encode('utf-8'))[0]
+        # self.E = ''.join(format(byte, '08b') for byte in codeword)
+        self.E = '100110'
         self.index = int(hashlib.md5("".join(self.prev3_generated_tokens).encode()).hexdigest(), 16) % len(self.E)
         self.bit = self.E[self.index]
 

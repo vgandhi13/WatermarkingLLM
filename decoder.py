@@ -59,14 +59,18 @@ class WatermarkDecoder:
 
             # Retrieve its cumulative probability
             prob_of_next_token = cumulative_probs[next_token_position].item()
-            prob_of_start_of_token = cumulative_probs[next_token_position - 1].item()
+            if prob_of_next_token == cumulative_probs[0].item():
+                prob_of_start_of_token = 0
+            else:
+                prob_of_start_of_token = cumulative_probs[next_token_position - 1].item()
 
-            print(cumulative_probs, prob_of_next_token, prob_of_start_of_token)
+            print(cumulative_probs)
+            print(prob_of_next_token, prob_of_start_of_token)
             
             # Determine encoded bit based on threshold
             if prob_of_next_token < t:
                 bit = '1'
-            elif prob_of_next_token > t:
+            elif prob_of_start_of_token > t: 
                 bit = '0'
             else:
                 bit = '?'
@@ -82,5 +86,5 @@ class WatermarkDecoder:
 
 # Example usage
 decoder = WatermarkDecoder()
-result = decoder.decode("Once upon a time", ", the reality was so stern and unmimulous")
+result = decoder.decode("Once upon a time", ", I was fishing on the Delaware River towards Pat")
 print(result)

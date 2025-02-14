@@ -117,7 +117,7 @@ class TopPLogitsWarper(LogitsProcessor):
         self.bit = self.E[self.index]
 
     # @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, encoded_bits, encoded_bit_indices) -> torch.FloatTensor:
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, encoded_bits, encoded_bit_indices, sampled_tokens, token_sampled_probs) -> torch.FloatTensor:
         if self.sampled_once:
             sampled_token = input_ids[0, -1]
             if len(self.prev3_generated_tokens) == 3:
@@ -142,6 +142,9 @@ class TopPLogitsWarper(LogitsProcessor):
                 prob_of_start_of_token = 0
             else:
                 prob_of_start_of_token = self.cum_probs[0, token_pos - 1].item()
+            if sampled_token.item() != self.questionmark_token.item():
+                sampled_tokens.append(self.tokenizer.decode(sampled_token.item()))
+                token_sampled_probs.append(prob_of_token_in_cum)
             # print("Prob of sampled token was ",prob_of_token_in_cum, " and its start is ", prob_of_start_of_token)
             # print()
         else:

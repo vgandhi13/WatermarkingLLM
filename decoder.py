@@ -37,6 +37,8 @@ class WatermarkDecoder:
         # print(len(logits[0]))
         extracted_bits = []
         extracted_indices = []
+        sampled_tokens = []
+        token_sampled_probs = []
         t = 0.5
         bit = 'unassigned'
         index = -1
@@ -66,7 +68,6 @@ class WatermarkDecoder:
                 prob_of_start_of_token = cumulative_probs[next_token_position - 1].item()
 
             #print("token is ", self.tokenizer.decode(next_token_id)," prob of token is ", prob_of_next_token)
-            
             # Determine encoded bit based on threshold
             if prob_of_next_token < t:
                 bit = '1'
@@ -80,9 +81,11 @@ class WatermarkDecoder:
             if bit != '?' and i != (len(logits[0]) - 1):
                 extracted_bits.append(bit)
                 extracted_indices.append(index)
+                sampled_tokens.append(self.tokenizer.decode(next_token_id))
+                token_sampled_probs.append(prob_of_next_token)
                 #print('bit', extracted_bits[-1], ' in index ', extracted_indices[-1])
         
-        return extracted_bits, extracted_indices
+        return extracted_bits, extracted_indices, sampled_tokens, token_sampled_probs
 
 # Example usage
 if __name__ == '__main__':

@@ -19,6 +19,7 @@ def encoder():
     logits_processor = TopPLogitsWarper(message="Asteroid", input_ids = input_ids)
     encoded_bits = []
     encoded_bit_indices = []
+    sampled_tokens, token_sampled_probs = [], []
 
     # Loop for generating tokens, er
     #while True:
@@ -29,7 +30,7 @@ def encoder():
 
         # Apply top-p filtering using our LogitsProcessor
         
-        scores_processed = logits_processor(input_ids, logits, encoded_bits, encoded_bit_indices)
+        scores_processed = logits_processor(input_ids, logits, encoded_bits, encoded_bit_indices, sampled_tokens, token_sampled_probs)
 
         # Apply softmax to get probabilities
         probs = F.softmax(scores_processed, dim=-1)
@@ -46,4 +47,4 @@ def encoder():
         #print("Text: ", generated_text)
 
     #print(encoded_bits, encoded_bit_indices, generated_text[16:])
-    return encoded_bits, encoded_bit_indices, generated_text[16:]
+    return encoded_bits, encoded_bit_indices, generated_text[16:], sampled_tokens, token_sampled_probs

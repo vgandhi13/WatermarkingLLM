@@ -6,10 +6,11 @@ import torch.nn.functional as F
 
 class WatermarkDecoder:
     def __init__(self, model_name="gpt2", message="Asteroid"):
-        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        # self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        self.device = "cpu"
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto").to(self.device)
-        
+        self.model.eval()
         # Generate expected codeword
         # codeword = McEliece().encrypt(message.encode('utf-8'))[0]
         # self.expected_codeword = ''.join(format(byte, '08b') for byte in codeword)
@@ -20,37 +21,37 @@ class WatermarkDecoder:
         prev_tokens = ["<empty>", "<empty>", "<empty>"]
         for i in range(max(0, len(prompt_input_ids[0]) - 3), len(prompt_input_ids[0])):
             token = prompt_input_ids[0, i]
-            #print(i, token)
             prev_tokens.append(self.tokenizer.decode(token.item()))
         prev_tokens = prev_tokens[-3:]
 
-        print(prev_tokens)
+        # print(prev_tokens)
+        # print(self.tokenizer.encode(prompt, return_tensors="pt"))
 
-        input_ids = self.tokenizer.encode(prev_tokens[-1] + generated_text, return_tensors="pt").to(self.device) #look into this
+        input_ids = self.tokenizer.encode(prompt + generated_text, return_tensors="pt").to(self.device) #look into this, to change
 
-        print(input_ids)
+        # print(input_ids)
         # Get logits for all tokens
         with torch.no_grad():
             outputs = self.model(input_ids)
             logits = outputs.logits[:, :-1, :] #since the last token has no "next token" to predict.
-        print(len(logits[0]))
+        # print(len(logits[0]))
         extracted_bits = []
         extracted_indices = []
         t = 0.5
         bit = 'unassigned'
         index = -1
 
-        
-        for i in range(len(logits[0])):
+        #print(len(self.tokenizer.encode(prompt, return_tensors="pt")), len(logits[0]))
+        for i in range(3, len(logits[0])):
             
             if bit != '?':
                 index = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.expected_codeword)
 
-            prev_tokens = prev_tokens[1:] + [self.tokenizer.decode(input_ids[0, i + 1].item())]
+            prev_tokens = prev_tokens[1:] + [self.tokenizer.decode(input_ids[0, i + 1].item())] #to change
            
             # Compute top-p probabilities
             sorted_logits, sorted_indices = torch.sort(logits[0, i], descending=True)
-            cumulative_probs = F.softmax(sorted_logits, dim=-1).cumsum(dim=-1)
+            cumulative_probs = sorted_logits.softmax(dim=-1).cumsum(dim=-1)
             # Get the token ID of the next token in the sequence
             next_token_id = input_ids[0, i + 1].item()
 
@@ -64,8 +65,7 @@ class WatermarkDecoder:
             else:
                 prob_of_start_of_token = cumulative_probs[next_token_position - 1].item()
 
-            print(cumulative_probs)
-            print(prob_of_next_token, prob_of_start_of_token)
+            #print("token is ", self.tokenizer.decode(next_token_id)," prob of token is ", prob_of_next_token)
             
             # Determine encoded bit based on threshold
             if prob_of_next_token < t:
@@ -76,15 +76,16 @@ class WatermarkDecoder:
                 bit = '?'
                 t = (t - prob_of_start_of_token)/(prob_of_next_token - prob_of_start_of_token)
             
-            if bit != '?':
+            #print("t is ", t)
+            if bit != '?' and i != (len(logits[0]) - 1):
                 extracted_bits.append(bit)
                 extracted_indices.append(index)
+                #print('bit', extracted_bits[-1], ' in index ', extracted_indices[-1])
         
-        print(t)
-        for x, y in zip(extracted_bits, extracted_indices):
-            print('bit', x, ' in index ', y)
+        return extracted_bits, extracted_indices
 
 # Example usage
-decoder = WatermarkDecoder()
-result = decoder.decode("Once upon a time", ", I was fishing on the Delaware River towards Pat")
-print(result)
+if __name__ == '__main__':
+    decoder = WatermarkDecoder()
+    result = decoder.decode("Once upon a time", ", I saw a lot of karasala")
+    print(result)

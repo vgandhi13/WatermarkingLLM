@@ -39,14 +39,17 @@ class WatermarkDecoder:
         extracted_indices = []
         sampled_tokens = []
         token_sampled_probs = []
+        t_ext = []
+        probs_start = []
         t = 0.5
         bit = 'unassigned'
         index = -1
+        question_mark = ''
 
         #print(len(self.tokenizer.encode(prompt, return_tensors="pt")), len(logits[0]))
         for i in range(3, len(logits[0])):
             
-            if bit != '?':
+            if question_mark != '?':
                 index = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.expected_codeword)
 
             prev_tokens = prev_tokens[1:] + [self.tokenizer.decode(input_ids[0, i + 1].item())] #to change
@@ -67,25 +70,34 @@ class WatermarkDecoder:
             else:
                 prob_of_start_of_token = cumulative_probs[next_token_position - 1].item()
 
+            if  i != (len(logits[0]) - 1):
+                t_ext.append(t)
             #print("token is ", self.tokenizer.decode(next_token_id)," prob of token is ", prob_of_next_token)
             # Determine encoded bit based on threshold
             if prob_of_next_token < t:
                 bit = '1'
+                question_mark = ''
+                t = 0.5
             elif prob_of_start_of_token > t: 
                 bit = '0'
+                question_mark = ''
+                t = 0.5
             else:
+                question_mark = '?'
                 bit = '?'
                 t = (t - prob_of_start_of_token)/(prob_of_next_token - prob_of_start_of_token)
             
             #print("t is ", t)
-            if bit != '?' and i != (len(logits[0]) - 1):
+            # if bit != '?' and i != (len(logits[0]) - 1):
+            if  i != (len(logits[0]) - 1):
                 extracted_bits.append(bit)
                 extracted_indices.append(index)
-                sampled_tokens.append(self.tokenizer.decode(next_token_id))
+                sampled_tokens.append(question_mark + self.tokenizer.decode(next_token_id))
                 token_sampled_probs.append(prob_of_next_token)
+                probs_start.append(prob_of_start_of_token)
                 #print('bit', extracted_bits[-1], ' in index ', extracted_indices[-1])
         
-        return extracted_bits, extracted_indices, sampled_tokens, token_sampled_probs
+        return extracted_bits, extracted_indices, sampled_tokens, token_sampled_probs, t_ext, probs_start
 
 # Example usage
 if __name__ == '__main__':

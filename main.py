@@ -20,17 +20,19 @@ def encoder():
     encoded_bits = []
     encoded_bit_indices = []
     sampled_tokens, token_sampled_probs = [], []
+    prob_start = []
+    t_enc = []
 
     # Loop for generating tokens, er
     #while True:
-    for step in range(10):
+    for step in range(100):
         # Get the logits from the model
         outputs = model(input_ids)
         logits = outputs.logits[:, -1, :]  # Only consider the last token
 
         # Apply top-p filtering using our LogitsProcessor
         
-        scores_processed = logits_processor(input_ids, logits, encoded_bits, encoded_bit_indices, sampled_tokens, token_sampled_probs)
+        scores_processed = logits_processor(input_ids, logits, encoded_bits, encoded_bit_indices, sampled_tokens, token_sampled_probs, t_enc, prob_start)
 
         # Apply softmax to get probabilities
         probs = F.softmax(scores_processed, dim=-1)
@@ -43,8 +45,8 @@ def encoder():
 
         # Append the token to the input for the next step
         input_ids = torch.cat((input_ids, next_token), dim=-1)
-        generated_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
+        generated_text = tokenizer.decode(input_ids[0], skip_special_tokens=False)
         #print("Text: ", generated_text)
 
     #print(encoded_bits, encoded_bit_indices, generated_text[16:])
-    return encoded_bits, encoded_bit_indices, generated_text[16:], sampled_tokens, token_sampled_probs
+    return encoded_bits, encoded_bit_indices, generated_text[16:], sampled_tokens, token_sampled_probs, t_enc, prob_start

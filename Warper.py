@@ -117,7 +117,7 @@ class TopPLogitsWarper(LogitsProcessor):
         self.bit = self.E[self.index]
 
     # @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, encoded_bits, encoded_bit_indices, sampled_tokens, token_sampled_probs) -> torch.FloatTensor:
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, encoded_bits, encoded_bit_indices, sampled_tokens, token_sampled_probs, t_enc, probs_start) -> torch.FloatTensor:
         if self.sampled_once:
             sampled_token = input_ids[0, -1]
             if len(self.prev3_generated_tokens) == 3:
@@ -125,15 +125,21 @@ class TopPLogitsWarper(LogitsProcessor):
             
             self.prev3_generated_tokens.append(self.tokenizer.decode(sampled_token.item())) #current token id and not the actual word
             #print("Previous three tokens: ", self.prev3_generated_tokens)
+            qm = ''
+            encoded_bits.append(self.bit)
+            encoded_bit_indices.append(self.index)
+            t_enc.append(self.t)
             if sampled_token.item() == self.questionmark_token.item():
                 #print("Continuing Encoding of :", self.bit," of index ", self.index)
+                qm = '?'
+                encoded_bits.pop()
+                encoded_bits.append('?')
                 self.t = (self.t - self.questionmark_token_lower_prob)/(self.questionmark_token_higher_prob - self.questionmark_token_lower_prob)
             else: # the break part in pseudocode, since all the one with opposite messages removed, dont need to explicitly check
                 #print("Encoded Bit:", self.bit," of index ", self.index)
-                encoded_bits.append(self.bit)
-                encoded_bit_indices.append(self.index)
                 self.index  = int(hashlib.md5("".join(self.prev3_generated_tokens).encode()).hexdigest(), 16) % len(self.E)
                 self.bit = self.E[self.index]
+                self.t = 0.5
 
             token_pos = (self.sorted_indices[0] == sampled_token.item()).nonzero(as_tuple=True)[0].item()
             # Retrieve its cumulative probability
@@ -142,9 +148,10 @@ class TopPLogitsWarper(LogitsProcessor):
                 prob_of_start_of_token = 0
             else:
                 prob_of_start_of_token = self.cum_probs[0, token_pos - 1].item()
-            if sampled_token.item() != self.questionmark_token.item():
-                sampled_tokens.append(self.tokenizer.decode(sampled_token.item()))
-                token_sampled_probs.append(prob_of_token_in_cum)
+            # if sampled_token.item() != self.questionmark_token.item():
+            sampled_tokens.append(qm + self.tokenizer.decode(sampled_token.item()))
+            token_sampled_probs.append(prob_of_token_in_cum)
+            probs_start.append(prob_of_start_of_token)
             # print("Prob of sampled token was ",prob_of_token_in_cum, " and its start is ", prob_of_start_of_token)
             # print()
         else:

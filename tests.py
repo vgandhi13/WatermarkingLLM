@@ -11,6 +11,7 @@ for i in range(1):
     encoded_bits, encoded_bit_indices, generated_text, sampled_tokens_en, token_sampled_probs_en, t_enc, probs_start_enc = encoder()
 
     decoder = WatermarkDecoder()
+
     extracted_bits, extracted_indices, sampled_tokens_dec, token_sampled_probs_dec, t_ext, probs_start_ext = decoder.decode(prompt, generated_text)
 
     bits_match = encoded_bits == extracted_bits
@@ -36,6 +37,7 @@ for i in range(1):
 
     enc_idx_bit_map = defaultdict(list)
     ext_idx_bit_map = defaultdict(list)
+
 
     for i in range(len(encoded_bits)):
         if encoded_bits[i]  != '?':
@@ -63,7 +65,7 @@ for i in range(1):
     idx_mismatch_map = dict()
     total_mismatches = 0
     denominator = 0 #likely less than total because of question marks
-    for i, enc_arr in enc_idx_bit_map.items():
+    for i, enc_arr in enc_idx_bit_map.items(): #change the decoding
         dec_arr = ext_idx_bit_map[i]
         dont_match = 0
         for b1, b2 in zip(enc_arr.copy(), dec_arr.copy()):

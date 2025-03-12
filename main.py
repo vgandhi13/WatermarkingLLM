@@ -10,6 +10,7 @@ def encoder():
     # device = "mps" if torch.backends.mps.is_available() else "cpu"
     device = "cpu"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+
     model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto").to(device)
     model.eval()
     # Example: Initial input
@@ -26,6 +27,9 @@ def encoder():
     # Loop for generating tokens, er
     #while True:
     for step in range(100):
+        #print(step)
+        # print(next(model.parameters()).device)
+        # print(input_ids.device)
         # Get the logits from the model
         outputs = model(input_ids)
         logits = outputs.logits[:, -1, :]  # Only consider the last token
@@ -36,6 +40,7 @@ def encoder():
 
         # Apply softmax to get probabilities
         probs = F.softmax(scores_processed, dim=-1)
+        #print(probs)
         # Sample the next token
         next_token = torch.multinomial(probs, 1)
         

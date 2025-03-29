@@ -8,4 +8,4 @@
 #SBATCH -o slurm-%j.out  # %j = job ID
 
 source ./bin/activate
-python tests.py
+python batch_tests.py

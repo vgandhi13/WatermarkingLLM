@@ -55,3 +55,6 @@ def encoder():
 
     #print(encoded_bits, encoded_bit_indices, generated_text[16:])
     return encoded_bits, encoded_bit_indices, generated_text[16:], sampled_tokens, token_sampled_probs, t_enc, prob_start
+
+if __name__ == '__main__':
+    encoder()

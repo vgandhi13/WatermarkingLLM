@@ -2,6 +2,43 @@ import torch
 from transformers.utils import add_start_docstrings
 from transformers.generation.logits_process import LOGITS_PROCESSOR_INPUTS_DOCSTRING
 
+class LogitsProcessorList(list):
+    """
+    This class can be used to create a list of [`LogitsProcessor`] or [`LogitsWarper`] to subsequently process a
+    `scores` input tensor. This class inherits from list and adds a specific *__call__* method to apply each
+    [`LogitsProcessor`] or [`LogitsWarper`] to the inputs.
+    """
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> torch.FloatTensor:
+        r"""
+        Args:
+            input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
+                Indices of input sequence tokens in the vocabulary. [What are input IDs?](../glossary#input-ids)
+            scores (`torch.FloatTensor` of shape `(batch_size, config.vocab_size)`):
+                Prediction scores of a language modeling head. These can be logits for each vocabulary when not using
+                beam search or log softmax for each vocabulary token when using beam search
+            kwargs (`Dict[str, Any]`, *optional*):
+                Additional kwargs that are specific to a logits processor.
+
+        Return:
+            `torch.FloatTensor` of shape `(batch_size, config.vocab_size)`:
+                The processed prediction scores.
+
+        """
+        for processor in self:
+            function_args = inspect.signature(processor.__call__).parameters
+            if len(function_args) > 2:
+                if not all(arg in kwargs for arg in list(function_args.keys())[2:]):
+                    raise ValueError(
+                        f"Make sure that all the required parameters: {list(function_args.keys())} for "
+                        f"{processor.__class__} are passed to the logits processor."
+                    )
+                scores = processor(input_ids, scores, **kwargs)
+            else:
+                scores = processor(input_ids, scores)
+        return scores
+
+
 class LogitsProcessor:
     """Abstract base class for all logit processors that can be applied during generation."""
 
@@ -80,51 +117,57 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import torch.nn.functional as F
 
-def encoder(prompt="Once upon a time", model_name="gpt2", max_tokens=100):
-    # Choose 1B or 3B model
-    # model_name = "LLaMA-3B"  # Or "LLaMA-1B"
-    model_name = model_name
-    # device = "mps" if torch.backends.mps.is_available() else "cpu"
+def batch_encoder(prompts, model_name="gpt2", max_tokens=100, batch_size=4, top_p=0.9):
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-
+    tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left")
+    tokenizer.pad_token = tokenizer.eos_token  # GPT2 doesn't have pad token
     model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto").to(device)
     model.eval()
-    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
-    next_token = -1
-    logits_processor = TopPLogitsWarper(1.0)  # top_p value, you can adjust this for your needs
-    # Loop for generating tokens, er
-    #while True:
-    for step in range(max_tokens):
-        #print(step)
-        # print(next(model.parameters()).device)
-        # print(input_ids.device)
-        # Get the logits from the model
-        outputs = model(input_ids)
-        logits = outputs.logits[:, -1, :]  # Only consider the last token
 
-        # Apply top-p filtering using our LogitsProcessor
-        
-        scores_processed = logits_processor(input_ids, logits)
+    results = []
 
-        # Apply softmax to get probabilities
-        probs = F.softmax(scores_processed, dim=-1)
-        #print(probs)
-        # Sample the next token
-        next_token = torch.multinomial(probs, 1)
-        
-        #break if end-of-sequence token is generated
-        # if next_token == tokenizer.eos_token_id:
-        #     break
+    for i in range(0, len(prompts), batch_size):
+        batch_prompts = prompts[i:i+batch_size]
+        actual_batch_size = len(batch_prompts)
 
-        # Append the token to the input for the next step
-        input_ids = torch.cat((input_ids, next_token), dim=-1)
-        generated_text = tokenizer.decode(input_ids[0], skip_special_tokens=False)
-        #print("Text: ", generated_text)
+        encoded = tokenizer(batch_prompts, return_tensors="pt", padding=True)
+        input_ids = encoded["input_ids"].to(device)
 
-    #print(encoded_bits, encoded_bit_indices, generated_text[16:])
-    return generated_text[len(prompt):]
+        logits_processor = LogitsProcessorList()
+        logits_processor.append(TopPLogitsWarper(top_p=top_p))
 
-if __name__ == '__main__':
-    ouput_Text = encoder(prompt="Once upon a time", model_name="gpt2", max_tokens=100) #excludes prompt
-    print(ouput_Text)
+        output_sequences = model.generate(
+            input_ids=input_ids,
+            max_new_tokens=max_tokens,
+            do_sample=True,
+            pad_token_id=tokenizer.eos_token_id,
+            logits_processor=logits_processor
+        )
+
+        for j in range(actual_batch_size):
+            full_text = tokenizer.decode(output_sequences[j], skip_special_tokens=True)
+            prompt_text = batch_prompts[j]
+            generated = full_text[len(prompt_text):] if full_text.startswith(prompt_text) else full_text
+
+            results.append({
+                "prompt": prompt_text,
+                "generated_text": generated,
+                "full_text": full_text
+            })
+
+    return results
+
+
+if __name__ == "__main__":
+    test_prompts = [
+        "Once upon a time",
+        "The quick brown fox",
+        "In a galaxy far away",
+        "It was a dark and stormy night"
+    ]
+
+    outputs = batch_encoder(test_prompts, model_name="gpt2", max_tokens=50, batch_size=2)
+
+    for i, res in enumerate(outputs):
+        print(f"\nPrompt {i+1}: {res['prompt']}")
+        print(f"Generated: {res['generated_text']}")

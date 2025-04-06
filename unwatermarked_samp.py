@@ -123,7 +123,7 @@ def encoder(prompt="Once upon a time", model_name="gpt2", max_tokens=100):
         #print("Text: ", generated_text)
 
     #print(encoded_bits, encoded_bit_indices, generated_text[16:])
-    return generated_text[16:]
+    return generated_text[len(prompt):]
 
 if __name__ == '__main__':
     ouput_Text = encoder(prompt="Once upon a time", model_name="gpt2", max_tokens=100) #excludes prompt

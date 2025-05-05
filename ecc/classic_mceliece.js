@@ -4,67 +4,78 @@ class ClassicMcEliece {
     constructor(parameterSet = 'mceliece8192128') {
         this.kem = new McEliece(parameterSet);
         this.parameterSet = parameterSet;
-        this.publicKey = null;
-        this.privateKey = null;
     }
 
     generateKeys() {
         const keys = this.kem.keypair();
-        this.publicKey = keys.publicKey;
-        this.privateKey = keys.privateKey;
-        return keys;
+        return {
+            publicKey: Buffer.from(keys.publicKey).toString('hex'),
+            privateKey: Buffer.from(keys.privateKey).toString('hex')
+        };
     }
 
-    //this is basically the encryption function
-    generateKey(publicKey = null) {
-        if (!publicKey) {
-            publicKey = this.publicKey;
-        }
-        return this.kem.generateKey(publicKey);
+    encrypt(publicKey) {
+        const pubKeyBuffer = Buffer.from(publicKey, 'hex');
+        const result = this.kem.generateKey(pubKeyBuffer);
+        return {
+            key: Buffer.from(result.key).toString('hex'),
+            encryptedKey: Buffer.from(result.encryptedKey).toString('hex')
+        };
     }
 
-    decryptKey(encryptedKey, privateKey = null) {
-        if (!privateKey) {
-            privateKey = this.privateKey;
-        }
-        try {
-            return this.kem.decryptKey(privateKey, encryptedKey);
-        } catch (error) {
-            throw new Error(`Decryption failed: ${error.message}`);
-        }
+    decrypt(encryptedKey, privateKey) {
+        const encKeyBuffer = Buffer.from(encryptedKey, 'hex');
+        const privKeyBuffer = Buffer.from(privateKey, 'hex');
+        const result = this.kem.decryptKey(privKeyBuffer, encKeyBuffer);
+        return Buffer.from(result).toString('hex');
     }
 }
 
-
-function testClassicMcEliece() {
-
+// Command-line interface
+if (require.main === module) {
     const mc = new ClassicMcEliece();
+    const command = process.argv[2];
     
     try {
-
-        const keys = mc.generateKeys();
-        console.log('Keys generated successfully');
-        console.log(`Using parameter set: ${mc.parameterSet}`);
-
-        const { key, encryptedKey } = mc.generateKey();
-        console.log('\nKey generation successful');
-        console.log(`Original key: ${key.toString('hex')}`);
-        console.log(`Encrypted key length: ${encryptedKey.length} bytes`);
-        
-
-        const decryptedKey = mc.decryptKey(encryptedKey);
-        console.log('\nDecryption successful');
-        console.log(`Decrypted key: ${decryptedKey.toString('hex')}`);
-        console.log(`Keys match: ${key.equals(decryptedKey)}`);
-        
+        switch (command) {
+            case 'generate':
+                // Immediately generate and output keys
+                const keys = mc.generateKeys();
+                console.log(JSON.stringify(keys));
+                break;
+                
+            case 'encrypt':
+                // Handle encryption through stdin
+                process.stdin.setEncoding('utf8');
+                let encryptInput = '';
+                process.stdin.on('data', chunk => encryptInput += chunk);
+                process.stdin.on('end', () => {
+                    const data = JSON.parse(encryptInput);
+                    const result = mc.encrypt(data.publicKey);
+                    console.log(JSON.stringify(result));
+                });
+                break;
+                
+            case 'decrypt':
+                // Handle decryption through stdin
+                process.stdin.setEncoding('utf8');
+                let decryptInput = '';
+                process.stdin.on('data', chunk => decryptInput += chunk);
+                process.stdin.on('end', () => {
+                    const data = JSON.parse(decryptInput);
+                    const decryptedKey = mc.decrypt(data.encryptedKey, data.privateKey);
+                    console.log(JSON.stringify({ decryptedKey }));
+                });
+                break;
+                
+            default:
+                console.error('Unknown command');
+                process.exit(1);
+        }
     } catch (error) {
-        console.error(`Error: ${error.message}`);
+        console.error(error.message);
+        process.exit(1);
     }
-}
-
-
-if (require.main === module) {
-    testClassicMcEliece();
 }
 
 module.exports = ClassicMcEliece;

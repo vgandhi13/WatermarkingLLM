@@ -1,7 +1,12 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import time
+from ecc.reed_solomon import ReedSolomonCode
 import openai
+import time
 import json
 from typing import List, Dict
-import os
 import pandas as pd
 from ecc.reed_solomon import ReedSolomonCode
 from ecc.permuted_reed_solomon import PermutedReedSolomon
@@ -10,68 +15,93 @@ import datasets
 from random import sample
 import matplotlib.pyplot as plt
 import numpy as np
+import asyncio
+from dotenv import load_dotenv
+from batch_main import batch_encoder
+from unwatermarked_samp import batch_encoder as batch_unencoder
+
 
 class LLMJudge:
-    def __init__(self, api_key: str, model_type: str = "alpaca"):
-        openai.api_key = api_key
+    def __init__(self, api_key: str, model_type: str = "both"):
         self.model_type = model_type
-        self.evaluation_data = self.load_evaluation_dataset()
+        openai.api_key_path = "openai_key.txt"
+        # Don't load datasets in init, load them when needed
         
-    def load_evaluation_dataset(self):
-        """Load and sample 200 prompts based on model type"""
-        if self.model_type.lower() == "alpaca":
-            # Load Alpaca evaluation set
-            dataset = datasets.load_dataset("tatsu-lab/alpaca_eval")
-            eval_prompts = dataset['eval']['instruction']
-            # Add word limit to each prompt
-            eval_prompts = [f"{prompt} Please limit your response to 300 words." for prompt in eval_prompts]
-        else:
-            # Load C4 dataset news-like subset
-            dataset = datasets.load_dataset("c4", "en", streaming=True)
-            # Filter for news-like content and add word limit
-            news_texts = [text for text in dataset['train'] 
-                         if text.get('url', '').endswith(('.com', '.org', '.net'))]
-            eval_prompts = [f"{text['text']} Please limit your response to 300 words." for text in news_texts]
-        
-        # Sample 200 prompts randomly
-        sampled_prompts = sample(eval_prompts, 200)
-        return sampled_prompts
-        
-    async def evaluate_text(self, text: str) -> Dict:
-        """
-        Evaluate text using GPT-4 based on sampled reference texts
-        """
-        reference_texts = sample(self.evaluation_data, 3)
-        
-        prompt = f"""
-        Please evaluate the following text by comparing it to high-quality reference texts.
-        Consider these aspects:
-        1. Relevancy (1-10): How well does it follow instructions and stay on topic
-        2. Coherence (1-10): Logical flow, clarity, and organization
-        3. Informativeness (1-10): Depth and usefulness of information provided
-        4. Factuality (1-10): Accuracy of facts and claims
-        5. Interestingness (1-10): Engagement and creativity
-        6. Overall Quality (1-10): Holistic assessment of the text's quality
+    def load_alpaca_dataset(self):
+        """Load Alpaca evaluation set with outputs"""
+        alpaca_dataset = datasets.load_dataset("tatsu-lab/alpaca_eval", trust_remote_code=True)
+        # Get both instructions and outputs
+        prompts_and_outputs = [
+            {
+                'prompt': instruction,
+                'expected_output': output
+            }
+            for instruction, output in zip(
+                alpaca_dataset['eval']['instruction'],
+                alpaca_dataset['eval']['output']
+            )
+        ]
+        return prompts_and_outputs
+    
+    def load_c4_dataset(self, limit=1000):
+        """Load C4 dataset with target outputs"""
+        c4_dataset = datasets.load_dataset("allenai/c4", "en", streaming=True, trust_remote_code=True)
+        prompts_and_outputs = []
+        count = 0
+        for text in c4_dataset['train']:
+            if count >= limit:
+                break
+            if text.get('url', '').endswith(('.com', '.org', '.net')):
+                # For C4, we'll use the full text as expected output
+                # and create a summarization prompt
+                prompts_and_outputs.append({
+                    'prompt': f"Summarize the following text: {text['text']}",
+                    'expected_output': text['text']
+                })
+                count += 1
+        return prompts_and_outputs
 
-        Provide a concise evaluation in JSON format with scores and brief explanations.
+    async def evaluate_text(self, generated_text: str, expected_output: str) -> Dict:
+        """
+        Evaluate text by comparing to expected output
+        """
+        prompt = f"""
+        Please evaluate the following generated text by comparing it to the expected output.
+        Consider these aspects:
+        1. Relevancy (1-10): How well does it match the expected content
+        2. Coherence (1-10): Logical flow, clarity, and organization
+        3. Informativeness (1-10): Coverage of key points from expected output
+        4. Factuality (1-10): Accuracy compared to expected output
+        5. Interestingness (1-10): Engagement and creativity while maintaining accuracy
+        6. Overall Quality (1-10): Holistic assessment of the match with expected output
+
+        Provide evaluation in this exact JSON format:
+        {{
+            "relevancy": score,
+            "coherence": score,
+            "informativeness": score,
+            "factuality": score,
+            "interestingness": score,
+            "overall_quality": score
+        }}
         
-        Reference texts for comparison:
-        {' '.join(reference_texts)}
+        Expected output:
+        {expected_output}
         
-        Text to evaluate:
-        {text}
+        Generated text to evaluate:
+        {generated_text}
         """
         
         try:
             response = await openai.ChatCompletion.acreate(
-                model="gpt-4",
+                model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are an expert evaluator."},
+                    {"role": "system", "content": "You are an expert evaluator. Compare the generated text to the expected output and respond only with the JSON format specified."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=1
             )
-            
+            time.sleep(20)
             evaluation = json.loads(response.choices[0].message.content)
             return evaluation
             
@@ -79,7 +109,7 @@ class LLMJudge:
             print(f"Error during evaluation: {str(e)}")
             return None
 
-def compare_watermarked_pairs(original_texts: List[str], watermarked_texts: List[str], unwatermarked_texts: List[str]) -> Dict:
+async def compare_watermarked_pairs(prompts_and_outputs: List[Dict], watermarked_texts: List[str], unwatermarked_texts: List[str]) -> Dict:
     """Compare quality metrics between original, watermarked, and unwatermarked text pairs"""
     results = {
         "watermarked": {
@@ -104,29 +134,34 @@ def compare_watermarked_pairs(original_texts: List[str], watermarked_texts: List
     
     judge = LLMJudge(os.getenv("OPENAI_API_KEY"))
     
-    for orig, water, unwater in zip(original_texts, watermarked_texts, unwatermarked_texts):
-        orig_eval = judge.evaluate_text(orig)
-        water_eval = judge.evaluate_text(water)
-        unwater_eval = judge.evaluate_text(unwater)
+    for prompt_data, water, unwater in zip(prompts_and_outputs, watermarked_texts, unwatermarked_texts):
+        print("\nEvaluating new text pair...")
         
-        if orig_eval and water_eval and unwater_eval:
+        baseline_eval = await judge.evaluate_text(prompt_data['expected_output'], prompt_data['expected_output'])
+        if not baseline_eval:
+            print("Failed to evaluate baseline text, skipping pair")
+            continue
+        
+        water_eval = await judge.evaluate_text(water, prompt_data['expected_output'])
+        if not water_eval:
+            print("Failed to evaluate watermarked text, skipping pair")
+            continue
+            
+        unwater_eval = await judge.evaluate_text(unwater, prompt_data['expected_output'])
+        if not unwater_eval:
+            print("Failed to evaluate unwatermarked text, skipping pair")
+            continue
+        
+        print("Successfully evaluated text pair")
+        
+        if baseline_eval and water_eval and unwater_eval:
+            print_results(baseline_eval, water_eval, unwater_eval, "Watermarking", "Current Dataset")
+            
+            # Still collect the differences for plotting
             metrics = ["relevancy", "coherence", "informativeness", "factuality", "interestingness", "overall_quality"]
-            
-            # Compare watermarked
             for metric in metrics:
-                water_diff = orig_eval[metric] - water_eval[metric]
-                results["watermarked"][f"{metric}_diff"].append(water_diff)
-            
-            water_overall = sum(results["watermarked"][k][-1] for k in [f"{m}_diff" for m in metrics]) / len(metrics)
-            results["watermarked"]["overall_quality_impact"].append(water_overall)
-            
-            # Compare unwatermarked
-            for metric in metrics:
-                unwater_diff = orig_eval[metric] - unwater_eval[metric]
-                results["unwatermarked"][f"{metric}_diff"].append(unwater_diff)
-            
-            unwater_overall = sum(results["unwatermarked"][k][-1] for k in [f"{m}_diff" for m in metrics]) / len(metrics)
-            results["unwatermarked"]["overall_quality_impact"].append(unwater_overall)
+                results["watermarked"][f"{metric}_diff"].append(baseline_eval[metric] - water_eval[metric])
+                results["unwatermarked"][f"{metric}_diff"].append(baseline_eval[metric] - unwater_eval[metric])
     
     return results
 
@@ -167,50 +202,85 @@ def plot_quality_metrics(results: Dict, scheme_name: str):
     plt.savefig(f'quality_metrics_{scheme_name.lower().replace("-", "_")}.png')
     plt.close()
 
-def main():
-    # Get prompts from correctness.py
-    from eval.correctness import prompts
-    
-    # Initialize different watermarking schemes
-    rs_code = ReedSolomonCode(255, 223)
-    prs_code = PermutedReedSolomon(255, 223)
-    mce_code = McEliece(255, 223)
-    
-    watermarking_schemes = {
-        "Reed-Solomon": rs_code,
-        "Permuted Reed-Solomon": prs_code,
-        "McEliece": mce_code
-    }
-    
-    # Test each watermarking scheme
-    for scheme_name, scheme in watermarking_schemes.items():
-        print(f"\nTesting {scheme_name} watermarking:")
+async def main():
+    try:
         
-        # Generate watermarked and unwatermarked versions
+        # Create judge instance
+        judge = LLMJudge(os.getenv("OPENAI_API_KEY"))
+        
+        # Run tests on Alpaca dataset first
+        print("\nTesting with Alpaca dataset:")
+        alpaca_prompts = judge.load_alpaca_dataset()
+        alpaca_promptsfr = [x['prompt'] for x in alpaca_prompts]
+        print(type(alpaca_prompts))
+        print(alpaca_prompts[0])
+            
         watermarked_texts = []
         unwatermarked_texts = []
-        for prompt in prompts[:3]:  # Test first 3 prompts to save API calls
-            codeword = scheme.encode("Watermark")
-            watermarked = watermarker(prompt, codeword)
-            watermarked_texts.append(watermarked)
-            unwatermarked_texts.append(unwatermarker(watermarked, codeword))
+        results, actual_model = batch_encoder(alpaca_promptsfr, max_tokens=300, batch_size=5, enc_method = 'Standard', messages=["asteroid"]*len(alpaca_promptsfr), model_name = "gpt2-medium") 
+        print(results[0])
+        watermarked_texts.extend([result['generated_text'] for result in results])
+        outputs = batch_unencoder(alpaca_promptsfr, model_name="meta-llama/Llama-3.2-3B", max_tokens=100, batch_size=4)
+        unwatermarked_texts.extend([output['generated_text'] for output in outputs])
+        
+        
         
         # Compare quality
-        results = compare_watermarked_pairs(prompts[:3], watermarked_texts, unwatermarked_texts)
+        results = await compare_watermarked_pairs(alpaca_prompts, 
+                                                watermarked_texts, 
+                                                unwatermarked_texts)
         
-        # Print results
-        for version in ["watermarked", "unwatermarked"]:
-            print(f"\nResults for {scheme_name} ({version}):")
-            print(f"Average Relevancy Impact: {sum(results[version]['relevancy_diff'])/len(results[version]['relevancy_diff']):.2f}")
-            print(f"Average Coherence Impact: {sum(results[version]['coherence_diff'])/len(results[version]['coherence_diff']):.2f}")
-            print(f"Average Informativeness Impact: {sum(results[version]['informativeness_diff'])/len(results[version]['informativeness_diff']):.2f}")
-            print(f"Average Factuality Impact: {sum(results[version]['factuality_diff'])/len(results[version]['factuality_diff']):.2f}")
-            print(f"Average Interestingness Impact: {sum(results[version]['interestingness_diff'])/len(results[version]['interestingness_diff']):.2f}")
-            print(f"Average Overall Quality Impact: {sum(results[version]['overall_quality_diff'])/len(results[version]['overall_quality_diff']):.2f}")
-            print(f"Overall Impact Across All Metrics: {sum(results[version]['overall_quality_impact'])/len(results[version]['overall_quality_impact']):.2f}")
+        if not results["watermarked"]["relevancy_diff"]:
+            print(f"No successful evaluations for Alpaca")
+
         
+        #  C4 dataset
+        print("\nTesting with C4 dataset:")
+        c4_prompts = judge.load_c4_dataset(limit=1000)
+        c4_promptsfr = [x['prompt'] for x in c4_prompts]
+        print(f"\nTesting watermarking on C4:")
+            
+        watermarked_texts = []
+        unwatermarked_texts = []
+        results, actual_model = batch_encoder(c4_promptsfr[:50], max_tokens=300, batch_size=5, enc_method = 'Standard', messages=["asteroid"]*50, model_name = "gpt2-medium") 
+        watermarked_texts.append([result['generated_text'] for result in results])
+        for p in c4_promptsfr:
+            unwatermarked_texts.append(encoder(prompt=p, model_name="meta-llama/Llama-3.2-3B"))
+        
+        # Compare quality
+        results = await compare_watermarked_pairs(c4_prompts[:50], 
+                                                watermarked_texts, 
+                                                unwatermarked_texts)
+        
+        if not results["watermarked"]["relevancy_diff"]:
+            print(f"No successful evaluations for c4")
+            
+            
         # Generate plots
-        plot_quality_metrics(results, scheme_name)
+        plot_quality_metrics(results, "alpaca")
+        plot_quality_metrics(results, "c4")
+            
+
+    except Exception as e:
+        print(f"Error in main: {str(e)}")
+
+def print_results(baseline_eval: Dict, water_eval: Dict, unwater_eval: Dict, scheme_name: str, dataset_name: str):
+    """Helper function to print raw quality scores"""
+    metrics = ["relevancy", "coherence", "informativeness", "factuality", "interestingness", "overall_quality"]
+    
+    print(f"\nQuality Scores for {scheme_name} on {dataset_name}:")
+    print("\nExpected Output Scores:")
+    for metric in metrics:
+        print(f"{metric.capitalize()}: {baseline_eval[metric]:.2f}")
+    
+    print("\nWatermarked Text Scores:")
+    for metric in metrics:
+        print(f"{metric.capitalize()}: {water_eval[metric]:.2f}")
+        
+    print("\nUnwatermarked Text Scores:")
+    for metric in metrics:
+        print(f"{metric.capitalize()}: {unwater_eval[metric]:.2f}")
 
 if __name__ == "__main__":
-    main()
+    print("pls work")
+    asyncio.run(main())

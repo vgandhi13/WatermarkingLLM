@@ -2,48 +2,64 @@ from batch_main import batch_encoder
 from batch_decoder import BatchWatermarkDecoder
 from collections import defaultdict
 from enum import Enum
+from huggingface_hub import login
 
 GREEN = "\033[92m"
 RED = "\033[91m"
 RESET = "\033[0m"
-
+# token = 'hf_your_huggingface_token_here'  # Replace with your actual Hugging Face token
+# login(token = token)
 
 class EncDecMethod(Enum):
     STANDARD = 'Standard'
     RANDOM = 'Random'
     NEXT = 'Next'
 
-MODEL_NAMES = ['gpt2', 'gpt2-medium',  'mistral', "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k", "meta-llama/Llama-3.1-1B", "meta-llama/Meta-Llama-3-8B"]
-
+MODEL_NAMES = ['gpt2', 'gpt2-medium',   "meta-llama/Llama-3.2-1B",'ministral/Ministral-3b-instruct', "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k", "meta-llama/Meta-Llama-3-8B"]
 
 #----------------USER INPUT VARIABLES BEGIN------------------
-BATCH_SIZE = 2
+BATCH_SIZE = 1
+CRYPTO_SCHEME = 'McEliece' # ['McEliece', 'Ciphertext']
 MAX_TOKENS = 100
 ENC_DEC_METHOD = EncDecMethod.STANDARD.value
 MODEL = MODEL_NAMES[0]
 print('Model used was ', MODEL)
 
 PROMPTS = [
-"Once upon a time",
-"The quick brown fox",
-"In a galaxy far away",
-"It was a dark and stormy night"
-]
+        "Tell me about artificial intelligence",
+        "Explain quantum computing",
+        # "What is machine learning?",
+        # "Describe neural networks",
+        # "How does blockchain work?",
+        # "Tell me about artificial intelligence",
+        # "Explain quantum computing",
+        # "What is machine learning?",
+        # "Describe neural networks",
+        # "How does blockchain work?"
+        # "Tell me about artificial intelligence",
+        # "Explain quantum computing",
+        # "What is machine learning?",
+        # "Describe neural networks",
+        # "How does blockchain work?",
+        # "Tell me about artificial intelligence",
+        # "Explain quantum computing",
+        # "What is machine learning?",
+        # "Describe neural networks",
+        # "How does blockchain work?"
+    ]
+    
 
 MESSAGES = [
     'asteroid',
-    'adsdfsdd',
-    'aesdfftd',
-    'aftadoid'
-]
+] * len(PROMPTS)
 
+#First entry of each batch table will be printed
 #----------------USER INPUT VARIABLES END------------------
 
-# Generate watermarked text for all prompts
-results, actual_model = batch_encoder(PROMPTS, max_tokens=MAX_TOKENS, batch_size=BATCH_SIZE, enc_method = ENC_DEC_METHOD, messages=MESSAGES, model_name = MODEL)
+results, actual_model = batch_encoder(PROMPTS, max_tokens=MAX_TOKENS, batch_size=BATCH_SIZE, enc_method = ENC_DEC_METHOD, messages=MESSAGES, model_name = MODEL, crypto_scheme = CRYPTO_SCHEME)
 
 
-decoder = BatchWatermarkDecoder(actual_model, message=MESSAGES, dec_method=ENC_DEC_METHOD, model_name = MODEL)
+decoder = BatchWatermarkDecoder(actual_model, message=MESSAGES, dec_method=ENC_DEC_METHOD, model_name = MODEL, crypto_scheme=CRYPTO_SCHEME)
 decoded_results = decoder.batch_decode(
 [r["prompt"] for r in results],
 [r["generated_text"] for r in results],
@@ -108,6 +124,8 @@ for i in range(0, len(results), BATCH_SIZE):
     num_dec_bits = 0
 
     for i, enc_arr in enc_idx_bit_map.items(): #change the decoding
+        if i not in ext_idx_bit_map:
+            break
         dec_arr = ext_idx_bit_map[i]
         for j in range(len(enc_arr)):
             if j>= len(dec_arr):

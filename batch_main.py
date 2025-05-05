@@ -2,6 +2,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import torch.nn.functional as F
 from batch_warper import BatchTopPLogitsWarper
+import joblib
+from gensim.models import FastText
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+import time
+
+KEY = b'=\x0fs\xf1q\xccQ\x9fhi\xa7\x89\x8f\xc5#\xbf'
 
 class LogitsProcessorList(list):
     """
@@ -40,7 +47,7 @@ class LogitsProcessorList(list):
         return scores
 
 
-def batch_encoder(prompts, enc_method, messages, model_name, max_tokens=100, batch_size=4):
+def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, max_tokens=100, batch_size=4):
     """
     Encode watermarks into text generated from multiple prompts simultaneously.
     
@@ -56,8 +63,20 @@ def batch_encoder(prompts, enc_method, messages, model_name, max_tokens=100, bat
     device = "cuda" if torch.cuda.is_available() else "cpu"
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
     tokenizer.pad_token = tokenizer.eos_token  # Use the EOS token as the padding token
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto").to(device)
+    model = AutoModelForCausalLM.from_pretrained(model_name,device_map="auto").to(device)
     model.eval()
+    start = time.time()
+    fasttext_model = FastText.load_fasttext_format("cc.en.300.bin")
+    end = time.time()
+    elapsed = end - start
+    print("Time taken to load fastext model in encoder: ", elapsed, "seconds")
+
+    start = time.time()
+    kmeans_model = joblib.load("kmeans_model3.pkl")
+    end = time.time()
+    elapsed = end - start
+    print("Time taken to load kmeans_model model in encoder: ", elapsed, "seconds")
+    
     
     results = []
     
@@ -94,7 +113,10 @@ def batch_encoder(prompts, enc_method, messages, model_name, max_tokens=100, bat
             enc_method = enc_method,
             input_ids=input_ids,
             batch_size=actual_batch_size,
-            model_name=model_name
+            model_name=model_name,
+            crypto_scheme=crypto_scheme,
+            fasttext_model = fasttext_model,
+            kmeans_model = kmeans_model
         )
         
         # # Generate tokens for the batch
@@ -152,19 +174,19 @@ def batch_encoder(prompts, enc_method, messages, model_name, max_tokens=100, bat
     
     return results, model
 
-# Example usage
-if __name__ == '__main__':
-    test_prompts = [
-        "Once upon a time",
-        "The quick brown fox",
-        "In a galaxy far away",
-        "It was a dark and stormy night"
-    ]
+# # Example usage
+# if __name__ == '__main__':
+#     test_prompts = [
+#         "Once upon a time",
+#         "The quick brown fox",
+#         "In a galaxy far away",
+#         "It was a dark and stormy night"
+#     ]
     
-    results = batch_encoder(test_prompts, max_tokens=30, batch_size=2)
+#     results = batch_encoder(test_prompts, max_tokens=30, batch_size=2)
     
-    # Print results
-    for i, result in enumerate(results):
-        print(f"\nPrompt {i+1}: {result['prompt']}")
-        print(f"Generated: {result['generated_text']}")
-        print(f"Encoded bits ({len(result['encoded_bits'])}): {result['encoded_bits'][:10]}...")
+#     # Print results
+#     for i, result in enumerate(results):
+#         print(f"\nPrompt {i+1}: {result['prompt']}")
+#         print(f"Generated: {result['generated_text']}")
+#         print(f"Encoded bits ({len(result['encoded_bits'])}): {result['encoded_bits'][:10]}...")

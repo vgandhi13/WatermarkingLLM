@@ -16,27 +16,28 @@ import time
 # KEY = b'=\x0fs\xf1q\xccQ\x9fhi\xa7\x89\x8f\xc5#\xbf'
 
 class BatchWatermarkDecoder:
-    def __init__(self, actual_model, message, dec_method, model_name, crypto_scheme):
+    def __init__(self, actual_model, message, dec_method, model_name, crypto_scheme, hash_scheme):
         self.dec_method = dec_method
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.tokenizer1 = AutoTokenizer.from_pretrained(model_name, padding_side='left')
-        self.tokenizer2 = AutoTokenizer.from_pretrained(model_name, padding_side='right')
+        self.tokenizer1 = AutoTokenizer.from_pretrained(model_name, padding_side='left', dtype=torch.long)
+        self.tokenizer2 = AutoTokenizer.from_pretrained(model_name, padding_side='right', dtype=torch.long)
         self.tokenizer1.pad_token = self.tokenizer1.eos_token  # Use the EOS token as the padding token
         self.tokenizer2.pad_token = self.tokenizer2.eos_token
         # self.model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto").to(self.device)
         # self.model.eval()
         self.model = actual_model
         self.model.eval()
-        start = time.time()
-        self.fasttext_model = FastText.load_fasttext_format("cc.en.300.bin")
-        end = time.time()
-        elapsed = end - start
-        print("Time taken to load fastext model in decoder: ", elapsed, "seconds")
-        start = time.time()
-        self.kmeans_model = joblib.load("kmeans_model3.pkl")
-        end = time.time()
-        elapsed = end - start
-        print("Time taken to load kmeans_model in decoder: ", elapsed, "seconds")
+        if hash_scheme == 'kmeans':
+            start = time.time()
+            self.fasttext_model = FastText.load_fasttext_format("cc.en.300.bin")
+            end = time.time()
+            elapsed = end - start
+            print("Time taken to load fastext model in decoder: ", elapsed, "seconds")
+            start = time.time()
+            self.kmeans_model = joblib.load("kmeans_model3.pkl")
+            end = time.time()
+            elapsed = end - start
+            print("Time taken to load kmeans_model in decoder: ", elapsed, "seconds")
 
         # For demonstration purposes:
         # In production implementation, use:
@@ -45,6 +46,7 @@ class BatchWatermarkDecoder:
 
         self.messages = message
         self.crypto_scheme = crypto_scheme
+        self.hash_scheme = hash_scheme
         
     
     def batch_decode(self, prompts, generated_texts, batch_size=1):
@@ -70,9 +72,8 @@ class BatchWatermarkDecoder:
             
             # Tokenize prompts and generated texts together with padding
             batch_inputs = self.tokenizer1(batch_prompts, return_tensors="pt", padding=True).to(self.device)
-            # batch_full_inputs = self.tokenizer([p + g for p, g in zip(batch_prompts, batch_texts)], return_tensors="pt", padding=True).to(self.device)
-            batch_full_inputs = self.tokenizer2(batch_texts, return_tensors="pt", padding=True, add_special_tokens = False).to(self.device)
-            batch_full_inputs = torch.cat((batch_inputs.input_ids, batch_full_inputs.input_ids), dim = 1)
+            batch_full_inputs = self.tokenizer2(batch_texts, return_tensors="pt", padding=True).to(self.device)
+            batch_full_inputs = torch.cat((batch_inputs.input_ids, batch_full_inputs.input_ids), dim = 1).long().to(self.device)
             # print('Decpder IDs ',batch_inputs.input_ids)
 
             with torch.no_grad():
@@ -84,13 +85,12 @@ class BatchWatermarkDecoder:
                 if self.crypto_scheme == 'McEliece':
                     codeword = McEliece().encrypt(batch_messages[b].encode('utf-8'))[0]
                     codeword = ''.join(format(byte, '08b') for byte in codeword)
-                    #codeword = '100110'
                 elif self.crypto_scheme == 'Ciphertext':
                     ciphertext = Ciphertext()
-                    codeword = ciphertext.encrypt(100)
+                    codeword = ciphertext.encrypt(160)
                     self.encoded_bits = [c for c in codeword]
                     self.encoded_bit_indices = [i for i in range(len(self.encoded_bits))]
-                result = self.decode(batch_prompts[b], batch_texts[b], batch_inputs.input_ids[b], batch_full_inputs[b], logits[b], codeword)
+                result = self.decode(batch_prompts[b], batch_texts[b], batch_inputs['input_ids'][b], batch_full_inputs[b], logits[b], codeword)
                 batch_results.append(result)
             
             results.extend(batch_results)
@@ -109,45 +109,41 @@ class BatchWatermarkDecoder:
             Tuple containing extracted bits, indices, sampled tokens, and probabilities
         """
         
-
-        '''  
-        OLD APPROACH
-        # Initialize context window (previous 3 tokens)
-        prev_tokens = ["<empty>", "<empty>", "<empty>"]
         prev_decoded_indices = set()
-        for i in range(max(0, len(prompt_input_ids) - 3), len(prompt_input_ids)):
-            token = prompt_input_ids[i]
-            prev_tokens.append(self.tokenizer1.decode(token.item()))
-        prev_tokens = prev_tokens[-3:]
-        '''
-        prev_decoded_indices = set()
-        # Initialize last_twenty_tokens and prev3_generated_tokens
-        last_twenty_tokens = []
+        if self.hash_scheme == 'hashlib':
+            prev_tokens = ["<empty>", "<empty>", "<empty>"]
+            for i in range(max(0, len(prompt_input_ids) - 3), len(prompt_input_ids)):
+                token = prompt_input_ids[i]
+                prev_tokens.append(self.tokenizer1.decode(token.item()))
+            prev_tokens = prev_tokens[-3:]
+        elif self.hash_scheme == 'kmeans':
+            # Initialize last_twenty_tokens and prev3_generated_tokens
+            last_twenty_tokens = []
 
-        # Fill last_twenty_tokens with decoded prompt tokens
-        for token in prompt_input_ids:
-            last_twenty_tokens.append(self.tokenizer1.decode(token.item()))
+            # Fill last_twenty_tokens with decoded prompt tokens
+            for token in prompt_input_ids:
+                last_twenty_tokens.append(self.tokenizer1.decode(token.item()))
 
-        # Cap at 20 tokens
-        if len(last_twenty_tokens) > 20:
-            last_twenty_tokens = last_twenty_tokens[-20:]
+            # Cap at 20 tokens
+            if len(last_twenty_tokens) > 20:
+                last_twenty_tokens = last_twenty_tokens[-20:]
 
-        # Merge tokens and tokenize into words
-        merged_string = ''.join(last_twenty_tokens)
-        # Find the last complete word boundary (last space)
-        last_space_idx = merged_string.rfind(' ')
+            # Merge tokens and tokenize into words
+            merged_string = ''.join(last_twenty_tokens)
+            # Find the last complete word boundary (last space)
+            last_space_idx = merged_string.rfind(' ')
 
-        if last_space_idx != -1:
-            merged_string = merged_string[:last_space_idx]  # Cut off incomplete word
-        else:
-            merged_string = ''  # No spaces found, so treat as empty (no complete words)
+            if last_space_idx != -1:
+                merged_string = merged_string[:last_space_idx]  # Cut off incomplete word
+            else:
+                merged_string = ''  # No spaces found, so treat as empty (no complete words)
 
-        words = word_tokenize(merged_string)
+            words = word_tokenize(merged_string)
 
-        # Initialize prev3_generated_tokens (last 3 words, pad with '.')
-        prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
+            # Initialize prev3_generated_tokens (last 3 words, pad with '.')
+            prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
 
-        print('Decoder last 3 words: ', prev_tokens)
+        # print('Decoder last 3 words: ', prev_tokens)
 
         
         # Initialize result trackers
@@ -169,15 +165,15 @@ class BatchWatermarkDecoder:
 
             if question_mark != '?':
                 # Determine the bit index based on previous tokens
-                # idx = new_index = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.expected_codeword)
-                embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
-                avg_embedding = sum(embeddings) / len(embeddings)
-                            # Reshape to (1, -1) since predict expects a 2D array
-                avg_embedding = avg_embedding.reshape(1, -1)
-                # Hash the context to get the bit index
-                # idx = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.codewords[b])
-                idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(codeword)
-                print('Index from Kmeans - decoder', idx)
+                if self.hash_scheme == 'hashlib':
+                    idx = new_index = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(codeword)
+                elif self.hash_scheme == 'kmeans':
+                    embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
+                    avg_embedding = sum(embeddings) / len(embeddings)
+                                # Reshape to (1, -1) since predict expects a 2D array
+                    avg_embedding = avg_embedding.reshape(1, -1)
+                    idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(codeword)
+                # print('Index from Kmeans - decoder', idx)
 
                 #Next Bit Approach
                 if self.dec_method == 'Next':
@@ -189,35 +185,36 @@ class BatchWatermarkDecoder:
                             exit()
                     prev_decoded_indices.add(new_index)
                 index = new_index
-            '''            
-            OLD APPROACH
-            # Update context window
-            prev_tokens = prev_tokens[1:] + [self.tokenizer1.decode(input_ids[i + 1].item())]'''
-            # Decode the new token
-            decoded_token = self.tokenizer1.decode(input_ids[i + 1].item())
 
-            # Update last_twenty_tokens
-            last_twenty_tokens.append(decoded_token)
+            if self.hash_scheme == 'hashlib':
+                prev_tokens = prev_tokens[1:] + [self.tokenizer1.decode(input_ids[i + 1].item())]
+            elif self.hash_scheme == 'kmeans':
+                # Decode the new token
+                decoded_token = self.tokenizer1.decode(input_ids[i + 1].item())
 
-            # Cap last_twenty_tokens to 20 tokens
-            if len(last_twenty_tokens) > 20:
-                last_twenty_tokens = last_twenty_tokens[-20:]
+                # Update last_twenty_tokens
+                last_twenty_tokens.append(decoded_token)
 
-            # Merge tokens into a string
-            merged_string = ''.join(last_twenty_tokens)
-                        # Find the last complete word boundary (last space)
-            last_space_idx = merged_string.rfind(' ')
+                # Cap last_twenty_tokens to 20 tokens
+                if len(last_twenty_tokens) > 20:
+                    last_twenty_tokens = last_twenty_tokens[-20:]
 
-            if last_space_idx != -1:
-                merged_string = merged_string[:last_space_idx]  # Cut off incomplete word
-            else:
-                merged_string = ''  # No spaces found, so treat as empty (no complete words)
-            words = word_tokenize(merged_string)
+                # Merge tokens into a string
+                merged_string = ''.join(last_twenty_tokens)
+                            # Find the last complete word boundary (last space)
+                last_space_idx = merged_string.rfind(' ')
 
-            # Initialize prev3_generated_tokens (last 3 words, pad with '.')
-            prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
+                if last_space_idx != -1:
+                    merged_string = merged_string[:last_space_idx]  # Cut off incomplete word
+                else:
+                    merged_string = ''  # No spaces found, so treat as empty (no complete words)
+                words = word_tokenize(merged_string)
 
-            print('Decoder last 3 words: ', prev_tokens)
+                # Initialize prev3_generated_tokens (last 3 words, pad with '.')
+                prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
+
+
+            # print('Decoder last 3 words: ', prev_tokens)
             
             # Get probability distribution
             sorted_logits, sorted_indices = torch.sort(logits[i], descending=True)
@@ -270,7 +267,7 @@ class BatchWatermarkDecoder:
             "threshold_values": t_ext,
             "prob_starts": probs_start,
             "expected_codeword": codeword,
-            "watermark_detected": self.evaluate_watermark(extracted_bits, extracted_indices, codeword) if self.crypto_scheme ==  'Ciphertext' else None
+            "watermark_detected": None
         }
     
     def evaluate_watermark(self, extracted_bits, extracted_indices, codeword):

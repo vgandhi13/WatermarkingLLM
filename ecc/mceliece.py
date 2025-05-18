@@ -22,7 +22,9 @@
 
 
 
-
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 from ecc.reed_solomon import ReedSolomonCode
 
@@ -78,20 +80,32 @@ class McEliece:
 def print_binary(data: bytes, label: str):
     print("\n" + label + ":")
     print("Bytes: " + str(data))
-    print("Binary: " + " ".join([format(b, '08b') for b in data[:8]]) + "...")  # First 8 bytes in binary
+    print("Binary: " + " ".join([format(b, '08b') for b in data]))  # First 8 bytes in binary
     print("Length: " + str(len(data)) + " bytes")
+    print("avg 0s and 1s")
+    total_0, total_1 = 0, 0
+    # Count bits without spaces
+    for byte in data:
+        binary = format(byte, '08b')
+        total_0 += binary.count('0')
+        total_1 += binary.count('1')
+    total_bits = total_0 + total_1
+    print(f"Average 0s: {total_0/total_bits}, Average 1s: {total_1/total_bits}")
 
 def test_mceliece():
     mc = McEliece()
+    for message in ["Asteroid"*27]:
+                codeword = McEliece().encrypt(message.encode('utf-8'))[0]
+                E = ''.join(format(byte, '08b') for byte in codeword)
+                print(E)
+                print("avg 0: " + str(E.count("0")/len(E)))
+                print("avg 1: " + str(E.count("1")/len(E)))
     
     messages = [
-        b"Hello world, PLS WORK!",
-        b"this is a test message pls work pls",
-        b"short msg",
-        b" @##4135135 plswork pretty pls long message" * 5
+        b"Asteroid",
     ]
     
-    error_counts = [5, 10, 15]
+    error_counts = []
     
     for msg in messages:
         print("\n" + "="*50)
@@ -107,6 +121,7 @@ def test_mceliece():
                 # Encrypt
                 cipher, num_errors = mc.encrypt(msg, t)
                 print_binary(cipher, "Encrypted Message")
+
                 
                 corrupted = mc.rs.introduce_errors(cipher, t)
                 print_binary(corrupted, "Corrupted Message (with " + str(t) + " errors)")

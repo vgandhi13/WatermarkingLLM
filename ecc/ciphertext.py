@@ -79,4 +79,17 @@ if __name__ == "__main__":
     ciphertext = Ciphertext()
     print(ciphertext.encrypt(100))
     print(ciphertext.encrypt(100))
+    print("avg 0s and 1s")
+    
+    for i in range(1, 200):
+        total_0, total_1 = 0, 0
+        print(ciphertext.encrypt(i))
+        for j in range(len(ciphertext.encrypt(i))):
+            if ciphertext.encrypt(i)[j] == '0':
+                total_0 += 1
+            else:
+                total_1 += 1
+        if total_0/len(ciphertext.encrypt(i)) < 0.51 and total_0/len(ciphertext.encrypt(i)) > 0.49:
+            print(i)
+            print(f"Average 0s: {total_0/len(ciphertext.encrypt(i))}, Average 1s: {total_1/len(ciphertext.encrypt(i))}")
 

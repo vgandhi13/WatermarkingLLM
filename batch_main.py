@@ -47,7 +47,7 @@ class LogitsProcessorList(list):
         return scores
 
 
-def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, max_tokens=100, batch_size=4):
+def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash_scheme, max_tokens=100, batch_size=4):
     """
     Encode watermarks into text generated from multiple prompts simultaneously.
     
@@ -65,17 +65,21 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, max_
     tokenizer.pad_token = tokenizer.eos_token  # Use the EOS token as the padding token
     model = AutoModelForCausalLM.from_pretrained(model_name,device_map="auto").to(device)
     model.eval()
-    start = time.time()
-    fasttext_model = FastText.load_fasttext_format("cc.en.300.bin")
-    end = time.time()
-    elapsed = end - start
-    print("Time taken to load fastext model in encoder: ", elapsed, "seconds")
+    fasttext_model = None
+    kmeans_model = None
 
-    start = time.time()
-    kmeans_model = joblib.load("kmeans_model3.pkl")
-    end = time.time()
-    elapsed = end - start
-    print("Time taken to load kmeans_model model in encoder: ", elapsed, "seconds")
+    if hash_scheme == 'kmeans':
+        start = time.time()
+        fasttext_model = FastText.load_fasttext_format("cc.en.300.bin")
+        end = time.time()
+        elapsed = end - start
+        print("Time taken to load fastext model in encoder: ", elapsed, "seconds")
+
+        start = time.time()
+        kmeans_model = joblib.load("kmeans_model3.pkl")
+        end = time.time()
+        elapsed = end - start
+        print("Time taken to load kmeans_model model in encoder: ", elapsed, "seconds")
     
     
     results = []
@@ -116,7 +120,8 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, max_
             model_name=model_name,
             crypto_scheme=crypto_scheme,
             fasttext_model = fasttext_model,
-            kmeans_model = kmeans_model
+            kmeans_model = kmeans_model,
+            hash_scheme=hash_scheme
         )
         
         # # Generate tokens for the batch

@@ -20,7 +20,6 @@ MODEL_NAMES = ['gpt2', 'gpt2-medium',   "meta-llama/Llama-3.2-1B",'ministral/Min
 #----------------USER INPUT VARIABLES BEGIN------------------
 BATCH_SIZE = 1
 CRYPTO_SCHEME = 'McEliece' # ['McEliece', 'Ciphertext']
-HASH_SCHEME = 'hashlib' # ['hashlib', 'kmeans']
 MAX_TOKENS = 100
 ENC_DEC_METHOD = EncDecMethod.STANDARD.value
 MODEL = MODEL_NAMES[0]
@@ -57,10 +56,10 @@ MESSAGES = [
 #First entry of each batch table will be printed
 #----------------USER INPUT VARIABLES END------------------
 
-results, actual_model = batch_encoder(PROMPTS, max_tokens=MAX_TOKENS, batch_size=BATCH_SIZE, enc_method = ENC_DEC_METHOD, messages=MESSAGES, model_name = MODEL, crypto_scheme = CRYPTO_SCHEME, hash_scheme = HASH_SCHEME)
+results, actual_model = batch_encoder(PROMPTS, max_tokens=MAX_TOKENS, batch_size=BATCH_SIZE, enc_method = ENC_DEC_METHOD, messages=MESSAGES, model_name = MODEL, crypto_scheme = CRYPTO_SCHEME)
 
 
-decoder = BatchWatermarkDecoder(actual_model, message=MESSAGES, dec_method=ENC_DEC_METHOD, model_name = MODEL, crypto_scheme=CRYPTO_SCHEME, hash_scheme=HASH_SCHEME)
+decoder = BatchWatermarkDecoder(actual_model, message=MESSAGES, dec_method=ENC_DEC_METHOD, model_name = MODEL, crypto_scheme=CRYPTO_SCHEME)
 decoded_results = decoder.batch_decode(
 [r["prompt"] for r in results],
 [r["generated_text"] for r in results],
@@ -108,16 +107,16 @@ for i in range(0, len(results), BATCH_SIZE):
     print("Encoded index and their bits", enc_idx_bit_map)
     print("Decoded index and their bits", ext_idx_bit_map)
 
-    not_encoded = 0
+    not_decoded = 0
     bit_not_same = 0
     for k, v in ext_idx_bit_map.items():
         if k not in enc_idx_bit_map:
-            not_encoded += 1
+            not_decoded += 1
         else:
             if v != enc_idx_bit_map[k]:
                 bit_not_same+=1
     
-    print('Indices which were encoded but not decoded ',not_encoded)
+    print('Indices which were encoded but not decoded ',not_decoded)
     print('Indices were bits decoded dont match bits encoded', bit_not_same)
 
     matches = 0

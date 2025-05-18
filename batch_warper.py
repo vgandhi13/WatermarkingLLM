@@ -35,7 +35,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
             batch_token_probs,
             batch_t_enc, 
             batch_prob_start,
-                 batch_messages, enc_method, input_ids, batch_size,crypto_scheme, fasttext_model, kmeans_model, model_name = "gpt2", t: float = 0.5, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
+                 batch_messages, enc_method, input_ids, batch_size,crypto_scheme, fasttext_model, kmeans_model, hash_scheme = "kmeans", model_name = "gpt2", t: float = 0.5, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
         if t < 0 or t > 1.0:
             raise ValueError(f"`top_p` has to be a float > 0 and < 1, but is {t}")
         if not isinstance(min_tokens_to_keep, int) or (min_tokens_to_keep < 1):
@@ -53,6 +53,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
         self.enc_method = enc_method
         self.fasttext_model = fasttext_model
         self.kmeans_model = kmeans_model
+        self.hash_scheme = hash_scheme
         
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
         self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -79,56 +80,64 @@ class BatchTopPLogitsWarper(LogitsProcessor):
             for message in batch_messages:
                 codeword = McEliece().encrypt(message.encode('utf-8'))[0]
                 E = ''.join(format(byte, '08b') for byte in codeword)
-                codewords.append(E)
+                codewords.append("codeword: " + E)
+                print(E)
                 # codewords.append('100110')
         elif crypto_scheme == 'Ciphertext':
             for message in batch_messages:
                 ciphertext = Ciphertext()
-                codeword = ciphertext.encrypt(100)
+                codeword = ciphertext.encrypt(160)
                 codewords.append(codeword)
         self.codewords = codewords
         
         
         # Initialize state for each sequence in the batch
         for b in range(batch_size):
-            # Decode current input_ids tokens for this batch index
-            tokens = [self.tokenizer.decode(token.item()) for token in input_ids[b]]
-            
-            # Update last_twenty_tokens by extending the token list
-            self.last_twenty_tokens.append(tokens)
-            if len(self.last_twenty_tokens[b]) > 20:
-                self.last_twenty_tokens[b] = self.last_twenty_tokens[b][-20:]
-            
-            # Merge all tokens into one string
-            merged_string = ''.join(self.last_twenty_tokens[b])
-            
-            # Find the last complete word boundary (last space)
-            last_space_idx = merged_string.rfind(' ')
+            if hash_scheme == 'hashlib':
+                # Initialize context window (previous 3 tokens)
+                prev_tokens = ["<empty>", "<empty>", "<empty>"]
+                for i in range(max(0, len(input_ids[b]) - 3), len(input_ids[b])):
+                    token = input_ids[b, i]
+                    prev_tokens.append(self.tokenizer.decode(token.item()))
+                prev_tokens = prev_tokens[-3:]
+                
+                # Hash the context to get the bit index
+                idx = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.codewords[b])
+            elif hash_scheme == 'kmeans':
+                # Decode current input_ids tokens for this batch index
+                tokens = [self.tokenizer.decode(token.item()) for token in input_ids[b]]
+                
+                # Update last_twenty_tokens by extending the token list
+                self.last_twenty_tokens.append(tokens)
+                if len(self.last_twenty_tokens[b]) > 20:
+                    self.last_twenty_tokens[b] = self.last_twenty_tokens[b][-20:]
+                
+                # Merge all tokens into one string
+                merged_string = ''.join(self.last_twenty_tokens[b])
+                
+                # Find the last complete word boundary (last space)
+                last_space_idx = merged_string.rfind(' ')
 
-            if last_space_idx != -1:
-                merged_string = merged_string[:last_space_idx]  # Cut off incomplete word
-            else:
-                merged_string = ''  # No spaces found, so treat as empty (no complete words)
-            
-            # Tokenize into words
-            words = word_tokenize(merged_string)
-            
-            # Get last 3 words (pad with periods if needed)
-            prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
-            
+                if last_space_idx != -1:
+                    merged_string = merged_string[:last_space_idx]  # Cut off incomplete word
+                else:
+                    merged_string = ''  # No spaces found, so treat as empty (no complete words)
+                
+                # Tokenize into words
+                words = word_tokenize(merged_string)
+                
+                # Get last 3 words (pad with periods if needed)
+                prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
+                
+                # print('Encoder last 3 words constructor: ', prev_tokens)
+
+                embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
+                avg_embedding = sum(embeddings) / len(embeddings)
+                # Reshape to (1, -1) since predict expects a 2D array
+                avg_embedding = avg_embedding.reshape(1, -1)
+                idx = self.kmeans_model.predict(avg_embedding)[0]  % len(self.codewords[b])
             # Append the last 3 words for this batch index
             self.prev3_generated_tokens.append(prev_tokens)
-            print('Encoder last 3 words const: ', prev_tokens)
-
-            embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
-            avg_embedding = sum(embeddings) / len(embeddings)
-                        # Reshape to (1, -1) since predict expects a 2D array
-            avg_embedding = avg_embedding.reshape(1, -1)
-            # Hash the context to get the bit index
-            # idx = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.codewords[b])
-
-            idx = self.kmeans_model.predict(avg_embedding)[0]  % len(self.codewords[b])
-
             self.prev_encoded_indices.append(set([idx]))
             self.index.append(idx)
             
@@ -157,46 +166,47 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 # Get the token that was sampled in the previous step
                 sampled_token = input_ids[b, -1]
 
-                ''' 
-                OLD APPROACH FOR PREVIOUS 3 TOKENS
-                # Update context window
-                if len(self.prev3_generated_tokens[b]) == 3:
-                    self.prev3_generated_tokens[b] = self.prev3_generated_tokens[b][1:]
-                self.prev3_generated_tokens[b].append(self.tokenizer.decode(sampled_token.item()))
-                '''
-                # Get the token that was sampled in the previous step
-                sampled_token = input_ids[b, -1]
+                if self.hash_scheme == 'hashlib':
+                    # Update context window
+                    if len(self.prev3_generated_tokens[b]) == 3:
+                        self.prev3_generated_tokens[b] = self.prev3_generated_tokens[b][1:]
+                    self.prev3_generated_tokens[b].append(self.tokenizer.decode(sampled_token.item()))
+                elif self.hash_scheme == 'kmeans':
+                        
+                    # Get the token that was sampled in the previous step
+                    sampled_token = input_ids[b, -1]
 
-                # Decode the token
-                decoded_token = self.tokenizer.decode(sampled_token.item())
+                    # Decode the token
+                    decoded_token = self.tokenizer.decode(sampled_token.item())
 
-                # Update last_twenty_tokens[b] with the new token
-                self.last_twenty_tokens[b].append(decoded_token)
+                    # Update last_twenty_tokens[b] with the new token
+                    self.last_twenty_tokens[b].append(decoded_token)
 
-                # Cap last_twenty_tokens[b] to the last 20 tokens
-                if len(self.last_twenty_tokens[b]) > 20:
-                    self.last_twenty_tokens[b] = self.last_twenty_tokens[b][-20:]
+                    # Cap last_twenty_tokens[b] to the last 20 tokens
+                    if len(self.last_twenty_tokens[b]) > 20:
+                        self.last_twenty_tokens[b] = self.last_twenty_tokens[b][-20:]
 
-                # Merge tokens into a single string
-                merged_string = ''.join(self.last_twenty_tokens[b])
+                    # Merge tokens into a single string
+                    merged_string = ''.join(self.last_twenty_tokens[b])
 
-                # Find the last complete word boundary (last space)
-                last_space_idx = merged_string.rfind(' ')
+                    # Find the last complete word boundary (last space)
+                    last_space_idx = merged_string.rfind(' ')
 
-                if last_space_idx != -1:
-                    merged_string = merged_string[:last_space_idx]  # Cut off incomplete word
-                else:
-                    merged_string = ''  # No spaces found, so treat as empty (no complete words)
+                    if last_space_idx != -1:
+                        merged_string = merged_string[:last_space_idx]  # Cut off incomplete word
+                    else:
+                        merged_string = ''  # No spaces found, so treat as empty (no complete words)
 
-                # Tokenize into words
-                words = word_tokenize(merged_string)
+                    # Tokenize into words
+                    words = word_tokenize(merged_string)
 
-                # Get last 3 words (pad with periods if needed)
-                prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
+                    # Get last 3 words (pad with periods if needed)
+                    prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
 
-                # Update prev3_generated_tokens[b] with the new context
-                self.prev3_generated_tokens[b] = prev_tokens
-                print('Encoder last 3 words call: ', prev_tokens)
+                    # Update prev3_generated_tokens[b] with the new context
+                    self.prev3_generated_tokens[b] = prev_tokens
+                    # print('Encoder last 3 words call: ', prev_tokens)
+                
                 
                 # Initial token tracking (will be updated if it's a question mark token)
                 qm = ''
@@ -213,19 +223,16 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                     self.t[b] = (self.t[b] - self.questionmark_token_lower_prob[b]) / (
                         self.questionmark_token_higher_prob[b] - self.questionmark_token_lower_prob[b])
                 else:
-                    # Complete bit encoded, move to next bit
-                    # idx = new_index = int(hashlib.md5("".join(self.prev3_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.codewords[b])
-                    
-                    embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
-                    
-                    avg_embedding = sum(embeddings) / len(embeddings)
-                                # Reshape to (1, -1) since predict expects a 2D array
-                    avg_embedding = avg_embedding.reshape(1, -1)
-                    # Hash the context to get the bit index
-                    # idx = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.codewords[b])
-               
-                    idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(self.codewords[b])
-                    print('Encoder index kmeans:', idx)
+                    if self.hash_scheme == 'hashlib':
+                        idx = new_index = int(hashlib.md5("".join(self.prev3_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.codewords[b])
+                    elif self.hash_scheme == 'kmeans':
+                        embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
+                        
+                        avg_embedding = sum(embeddings) / len(embeddings)
+                                    # Reshape to (1, -1) since predict expects a 2D array
+                        avg_embedding = avg_embedding.reshape(1, -1)
+                        idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(self.codewords[b])
+                    #print('Encoder index kmeans:', idx)
                     #Next Bit Approach
                     if self.enc_method == 'Next':
                         while new_index in self.prev_encoded_indices[b]:

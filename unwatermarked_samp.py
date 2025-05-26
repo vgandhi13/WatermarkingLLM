@@ -117,11 +117,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import torch.nn.functional as F
 
-def batch_encoder(prompts, model_name="gpt2", max_tokens=100, batch_size=4, top_p=0.9):
+def batch_encoder(prompts, model_name="gpt2", max_tokens=100, batch_size=4, top_p=1):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left")
     tokenizer.pad_token = tokenizer.eos_token  # GPT2 doesn't have pad token
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto").to(device)
+    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype="auto", trust_remote_code=True).to(device)
     model.eval()
 
     results = []
@@ -131,13 +131,14 @@ def batch_encoder(prompts, model_name="gpt2", max_tokens=100, batch_size=4, top_
         actual_batch_size = len(batch_prompts)
 
         encoded = tokenizer(batch_prompts, return_tensors="pt", padding=True)
+        print("device", device)
         input_ids = encoded["input_ids"].to(device)
 
         logits_processor = LogitsProcessorList()
         logits_processor.append(TopPLogitsWarper(top_p=top_p))
 
         output_sequences = model.generate(
-            input_ids=input_ids,
+            input_ids=input_ids.to(device),
             max_new_tokens=max_tokens,
             do_sample=True,
             pad_token_id=tokenizer.eos_token_id,

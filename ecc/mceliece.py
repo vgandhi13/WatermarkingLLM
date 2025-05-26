@@ -94,7 +94,7 @@ def print_binary(data: bytes, label: str):
 
 def test_mceliece():
     mc = McEliece()
-    for message in ["Asteroid"*27]:
+    for message in ["Asteroid"*27 + "aaa"]:
                 codeword = McEliece().encrypt(message.encode('utf-8'))[0]
                 E = ''.join(format(byte, '08b') for byte in codeword)
                 print(E)

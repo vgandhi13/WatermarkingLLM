@@ -63,7 +63,7 @@ PROMPTS = [x['prompt'] for x in alpaca_prompts]
 PROMPTS = PROMPTS[:100]
 
 MESSAGES = [
-    'Asteroid'*26, 
+    "Asteroid"*27 + "aaa" 
 ] * len(PROMPTS)
 
 class LLMJudge:
@@ -179,7 +179,7 @@ class LLMJudge:
                 ],
                 temperature=1
             )
-            time.sleep(20)
+            time.sleep(10)
             evaluation = json.loads(response.choices[0].message.content)
             return evaluation
             
@@ -413,13 +413,14 @@ async def main():
         ]
         
         # Initialize counters for total 0s and 1s
-        total_0s = 0
-        total_1s = 0
-        total_bits = 0
+        
         
         # Run tests on Alpaca dataset for each configuration
         for crypto_scheme, enc_method in configs:
             print(f"\nTesting with {crypto_scheme} and {enc_method} encoding:")
+            total_0s = 0
+            total_1s = 0
+            total_bits = 0
             global CRYPTO_SCHEME, ENC_DEC_METHOD
             CRYPTO_SCHEME = crypto_scheme
             ENC_DEC_METHOD = enc_method
@@ -480,12 +481,10 @@ async def main():
             
             # Print results and create individual plot
             print_results(None, results["watermarked"], results["unwatermarked"], scheme_name, "alpaca")
-        
-        # Print final averages
-        if total_bits > 0:
-            print("\nOverall Bit Distribution:")
+            print(f"\nBit Distribution for {scheme_name} and {enc_method}:")
             print(f"Average 0's: {total_0s/total_bits:.4f}")
             print(f"Average 1's: {total_1s/total_bits:.4f}")
+            
         
         # Create combined plot of overall scores
         plot_combined_overall_scores(all_scores)

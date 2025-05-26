@@ -41,7 +41,7 @@ BATCH_SIZE = 2
 CRYPTO_SCHEME = 'Ciphertext' # ['McEliece', 'Ciphertext']
 MAX_TOKENS = 300
 ENC_DEC_METHOD = EncDecMethod.STANDARD.value
-MODEL = MODEL_NAMES[0]
+MODEL = MODEL_NAMES[-1]
 print('Model used was ', MODEL)
 
 def load_alpaca_dataset():
@@ -63,7 +63,7 @@ def load_alpaca_dataset():
 alpaca_prompts = load_alpaca_dataset()
 PROMPTS = [x['prompt'] for x in alpaca_prompts]
 
-PROMPTS = PROMPTS[:10]
+PROMPTS = PROMPTS[:100]
 print(len(PROMPTS))
 
 MESSAGES = [

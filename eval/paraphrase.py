@@ -101,13 +101,12 @@ def watermarked_detected(watermarked_results, decoded_results, i):
         num_enc_bits = 0
         num_dec_bits = 0
 
-        for i, enc_arr in enc_idx_bit_map.items(): #change the decoding
+        for i, enc_arr in enc_idx_bit_map.items(): # change the decoding
             if i not in ext_idx_bit_map:
                 continue
-            
             dec_arr = ext_idx_bit_map[i]
             for j in range(len(enc_arr)):
-                if j>= len(dec_arr):
+                if j >= len(dec_arr):
                     break
                 if enc_arr[j] == dec_arr[j]:
                     matches += 1
@@ -134,9 +133,7 @@ def watermarked_detected(watermarked_results, decoded_results, i):
                     continue
                 bit = ground_truth_bit_map[i]
                 for j in range(len(dec_arr)):
-                    if j>= len(bit):
-                        break
-                    if bit[j] == dec_arr[j]:
+                    if bit[0] == dec_arr[j]:
                         matches += 1
                 
                 num_dec_bits += len(dec_arr)

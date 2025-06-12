@@ -93,14 +93,6 @@ def watermarked_detected(watermarked_results, decoded_results, i):
         # print("Encoded index and their bits", enc_idx_bit_map)
         # print("Decoded index and their bits", ext_idx_bit_map)
 
-        not_decoded = 0
-        bit_not_same = 0
-        for k, v in ext_idx_bit_map.items():
-            if k not in enc_idx_bit_map:
-                not_decoded += 1
-            else:
-                if v != enc_idx_bit_map[k]:
-                    bit_not_same+=1
         
         # print('Indices which were encoded but not decoded ',not_decoded)
         # print('Indices were bits decoded dont match bits encoded', bit_not_same)
@@ -112,6 +104,7 @@ def watermarked_detected(watermarked_results, decoded_results, i):
         for i, enc_arr in enc_idx_bit_map.items(): #change the decoding
             if i not in ext_idx_bit_map:
                 continue
+            
             dec_arr = ext_idx_bit_map[i]
             for j in range(len(enc_arr)):
                 if j>= len(dec_arr):
@@ -136,12 +129,12 @@ def watermarked_detected(watermarked_results, decoded_results, i):
             num_enc_bits = 0
             num_dec_bits = 0
             # print(ext_idx_bit_map)
-            for i, bit in ground_truth_bit_map.items(): #change the decoding
-                if i not in ext_idx_bit_map:
+            for i, dec_arr in ext_idx_bit_map.items(): #change the decoding
+                if i not in ground_truth_bit_map:
                     continue
-                dec_arr = ext_idx_bit_map[i]
-                for j in range(len([bit])):
-                    if j>= len(dec_arr):
+                bit = ground_truth_bit_map[i]
+                for j in range(len(dec_arr)):
+                    if j>= len(bit):
                         break
                     if bit[j] == dec_arr[j]:
                         matches += 1

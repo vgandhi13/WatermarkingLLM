@@ -15,4 +15,6 @@ glove.6B.300d.word2vec.txt
 glove.6B.zip
 /bin/*
 ./bin/*
+./node_modules/*
+./node_modules
 

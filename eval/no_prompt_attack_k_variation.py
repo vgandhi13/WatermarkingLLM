@@ -28,8 +28,7 @@ from unwatermarked_samp import batch_encoder as batch_unencoder
 GREEN = ""
 RED = ""
 RESET = ""
-token = os.getenv("HF_TOKEN")   # Replace with your actual Hugging Face token
-login(token = token)
+login(token = os.getenv("HF_TOKEN"))
 
 class EncDecMethod(Enum):
     STANDARD = 'Standard'

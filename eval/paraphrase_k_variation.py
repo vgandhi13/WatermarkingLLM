@@ -29,7 +29,7 @@ RED = "\033[91m"
 RESET = "\033[0m"
 #----------------USER INPUT VARIABLES BEGIN------------------
 
-token = os.getenv("HF_TOKEN")   # Replace with your actual Hugging Face token
+token = os.getenv("HF_TOKEN")  # Replace with your actual Hugging Face token
 login(token = token)
 class EncDecMethod(Enum):
     STANDARD = 'Standard'
@@ -49,7 +49,7 @@ HASH_SCHEME = 'kmeans' # ['hashlib', 'kmeans']
 MODEL = MODEL_NAMES[0]
 print('Model used was ', MODEL)
 
-KMEANS_MODEL = "kmeans_model_160_n5.pkl"  # Path to the KMeans model file
+KMEANS_MODEL = "kmeans_model_540_n5.pkl"  # Path to the KMeans model file
 print('KMeans model used was: ', MODEL)
 window_size = 5
 print("Window size used was: ", window_size)
@@ -134,17 +134,15 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
             
             dec_arr = ext_idx_bit_map[i]
             for j in range(len(enc_arr)):
-                if j >= len(dec_arr):
+                if j>= len(dec_arr):
                     break
-
                 if enc_arr[j] == dec_arr[j]:
                     matches += 1
 
             num_enc_bits += len(enc_arr)
             num_dec_bits += len(dec_arr)
         
-        print("Precision_send is ", matches / num_dec_bits if num_dec_bits != 0 else 0)
-
+        print("Precision_send is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
         if when == 'before':
             avg_before += matches/num_dec_bits if num_dec_bits != 0 else 0
         else:
@@ -165,7 +163,6 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
             for i, dec_arr in ext_idx_bit_map.items():
                 if i not in ground_truth_bit_map:
                     continue
-
                 bit = ground_truth_bit_map[i]
 
                 for j in range(len(dec_arr)):

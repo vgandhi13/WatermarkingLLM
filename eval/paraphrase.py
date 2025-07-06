@@ -29,8 +29,7 @@ RED = "\033[91m"
 RESET = "\033[0m"
 #----------------USER INPUT VARIABLES BEGIN------------------
 
-token = os.getenv("HF_TOKEN")  # Replace with your actual Hugging Face token
-login(token = token)
+login(token = os.getenv("HF_TOKEN"))
 class EncDecMethod(Enum):
     STANDARD = 'Standard'
     RANDOM = 'Random'

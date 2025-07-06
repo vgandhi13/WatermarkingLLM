@@ -36,8 +36,6 @@ class BatchTopPLogitsWarper(LogitsProcessor):
             batch_t_enc, 
             batch_prob_start,
                  batch_messages, enc_method, input_ids, batch_size,crypto_scheme, fasttext_model, kmeans_model, hash_scheme = "kmeans", model_name = "gpt2", t: float = 0.5, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
-        if t < 0 or t > 1.0:
-            raise ValueError(f"`top_p` has to be a float > 0 and < 1, but is {t}")
         if not isinstance(min_tokens_to_keep, int) or (min_tokens_to_keep < 1):
             raise ValueError(f"`min_tokens_to_keep` has to be a positive integer, but is {min_tokens_to_keep}")
 
@@ -81,7 +79,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 codeword = McEliece().encrypt(message.encode('utf-8'))[0]
                 E = ''.join(format(byte, '08b') for byte in codeword)
                 codewords.append("codeword: " + E)
-                print(E)
+                # print(E)
                 # codewords.append('100110')
         elif crypto_scheme == 'Ciphertext':
             for message in batch_messages:

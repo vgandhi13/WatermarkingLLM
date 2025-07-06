@@ -47,7 +47,7 @@ class LogitsProcessorList(list):
         return scores
 
 
-def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash_scheme, max_tokens=100, batch_size=4):
+def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash_scheme, max_tokens=100, batch_size=4, kmeans_model_path="kmeans_model3.pkl"):
     """
     Encode watermarks into text generated from multiple prompts simultaneously.
     
@@ -61,9 +61,10 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash
         List of dictionaries containing generation results and watermark data
     """
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
     tokenizer.pad_token = tokenizer.eos_token  # Use the EOS token as the padding token
-    model = AutoModelForCausalLM.from_pretrained(model_name,device_map="auto").to(device)
+    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
     model.eval()
     fasttext_model = None
     kmeans_model = None
@@ -76,9 +77,10 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash
         print("Time taken to load fastext model in encoder: ", elapsed, "seconds")
 
         start = time.time()
-        kmeans_model = joblib.load("kmeans_model3.pkl")
+        kmeans_model = kmeans_model = joblib.load(kmeans_model_path) # joblib.load("kmeans_model3.pkl")
         end = time.time()
         elapsed = end - start
+        print("Loaded kmeans model: ", kmeans_model_path)
         print("Time taken to load kmeans_model model in encoder: ", elapsed, "seconds")
     
     

@@ -16,10 +16,11 @@ import time
 # KEY = b'=\x0fs\xf1q\xccQ\x9fhi\xa7\x89\x8f\xc5#\xbf'
 
 class BatchWatermarkDecoder:
-    def __init__(self, actual_model, message, dec_method, model_name, crypto_scheme, hash_scheme):
+    def __init__(self, actual_model, message, dec_method, model_name, crypto_scheme, hash_scheme, kmeans_model_path="kmeans_model3.pkl"):
         self.dec_method = dec_method
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.tokenizer1 = AutoTokenizer.from_pretrained(model_name, padding_side='left', dtype=torch.long)
+        print('Device is ', self.device)
+        self.tokenizer1 = AutoTokenizer.from_pretrained(model_name, padding_side='left', dtype=torch.long )
         self.tokenizer2 = AutoTokenizer.from_pretrained(model_name, padding_side='right', dtype=torch.long)
         self.tokenizer1.pad_token = self.tokenizer1.eos_token  # Use the EOS token as the padding token
         self.tokenizer2.pad_token = self.tokenizer2.eos_token
@@ -34,9 +35,10 @@ class BatchWatermarkDecoder:
             elapsed = end - start
             print("Time taken to load fastext model in decoder: ", elapsed, "seconds")
             start = time.time()
-            self.kmeans_model = joblib.load("kmeans_model3.pkl")
+            self.kmeans_model = joblib.load(kmeans_model_path) # joblib.load("kmeans_model3.pkl")
             end = time.time()
             elapsed = end - start
+            print("Loaded kmeans model: ", kmeans_model_path)
             print("Time taken to load kmeans_model in decoder: ", elapsed, "seconds")
 
         # For demonstration purposes:

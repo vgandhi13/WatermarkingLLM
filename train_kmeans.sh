@@ -8,4 +8,4 @@
 #SBATCH -o slurm-%j.out  # %j = job ID
 
 source ./bin/activate
-python kmeans_model.py
+python kmeans_n_variation.py

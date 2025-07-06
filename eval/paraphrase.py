@@ -29,7 +29,9 @@ RED = "\033[91m"
 RESET = "\033[0m"
 #----------------USER INPUT VARIABLES BEGIN------------------
 
-login(token = os.getenv("HF_TOKEN"))
+
+load_dotenv()
+login(token = os.getenv('HF_TOKEN'))
 class EncDecMethod(Enum):
     STANDARD = 'Standard'
     RANDOM = 'Random'
@@ -70,6 +72,7 @@ def load_dataset():
         # return titles_and_prompts
         prompts = dataset['train']['prompt']
         return prompts
+
 
 prompts = load_dataset()
 PROMPTS = [p.strip().replace('\n', '').strip('"').strip("'") for p in prompts]

@@ -1,5 +1,5 @@
-./__pycache__/*
-./venv/*
+# Python
+__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -7,14 +7,39 @@
 venv/
 ENV/
 .env
+
+# GloVe embeddings
 glove.6B.300d.txt
 glove.6B.50d.txt
 glove.6B.100d.txt
 glove.6B.200d.txt
 glove.6B.300d.word2vec.txt
 glove.6B.zip
-/bin/*
-./bin/*
-./node_modules/*
-./node_modules
 
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Binaries
+bin/
+include/
+lib/
+lib64/
+libexec/
+local/
+sbin/
+src/
+share/
+
+# Output files
+*.out
+*.png
+*.pdf
+*.txt
+*.csv
+*.json
+*.jsonl
+*.jsonl.gz
+*.jsonl.gz.part 

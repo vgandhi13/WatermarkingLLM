@@ -45,6 +45,7 @@ lib64
 *.jsonl
 *.jsonl.gz
 *.jsonl.gz.part 
+
 *.bin
 *.bin.gz
 *.pkl   
@@ -54,5 +55,4 @@ lib64
 *.pth.tar.gz
 *.pth.tar.gz.part
 *.pth.tar.gz.part.1
-*.pth.tar.gz.part.2
 *.cfg

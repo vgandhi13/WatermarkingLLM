@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -c 1  # Number of Cores per Task
-#SBATCH --mem=8192  # Requested Memory
+#SBATCH --mem=80G  # Requested Memory
 #SBATCH -p gpu  # Partition
 #SBATCH -G 1  # Number of GPUs
 #SBATCH  --constraint=vram23
@@ -8,4 +8,4 @@
 #SBATCH -o slurm-%j.out  # %j = job ID
 
 source ./bin/activate
-python batch_tests.py
+python batch_tests_kmeans_variation.py

@@ -5,6 +5,7 @@
 #SBATCH -G 1  # Number of GPUs
 #SBATCH  --constraint=vram48
 #SBATCH -t 48:00:00  # Job time limit
-#SBATCH -o paraphrase_k160_n5_variation-%j.out  # %j = job ID
+#SBATCH -o paraphrase-%j.out  # %j = job ID
+
 source ./bin/activate
-python eval/paraphrase_k_variation.py
+python eval/paraphrase.py

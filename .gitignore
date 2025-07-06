@@ -32,6 +32,7 @@ local/
 sbin/
 src/
 share/
+lib64
 
 # Output files
 *.out
@@ -43,3 +44,14 @@ share/
 *.jsonl
 *.jsonl.gz
 *.jsonl.gz.part 
+
+*.bin
+*.bin.gz
+*.pkl   
+*.pth
+*.pt
+*.pth.tar
+*.pth.tar.gz
+*.pth.tar.gz.part
+*.pth.tar.gz.part.1
+*.cfg

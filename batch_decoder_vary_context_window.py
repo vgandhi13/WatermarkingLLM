@@ -16,11 +16,11 @@ import time
 # KEY = b'=\x0fs\xf1q\xccQ\x9fhi\xa7\x89\x8f\xc5#\xbf'
 
 class BatchWatermarkDecoder:
-    def __init__(self, actual_model, message, dec_method, model_name, crypto_scheme, hash_scheme, kmeans_model_path="kmeans_model3.pkl"):
+    def __init__(self, actual_model, message, dec_method, model_name, crypto_scheme, hash_scheme, kmeans_model_path="kmeans_model3.pkl", window_size=3):
         self.dec_method = dec_method
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print('Device is ', self.device)
-        self.tokenizer1 = AutoTokenizer.from_pretrained(model_name, padding_side='left', dtype=torch.long )
+        self.tokenizer1 = AutoTokenizer.from_pretrained(model_name, padding_side='left', dtype=torch.long)
         self.tokenizer2 = AutoTokenizer.from_pretrained(model_name, padding_side='right', dtype=torch.long)
         self.tokenizer1.pad_token = self.tokenizer1.eos_token  # Use the EOS token as the padding token
         self.tokenizer2.pad_token = self.tokenizer2.eos_token
@@ -49,7 +49,7 @@ class BatchWatermarkDecoder:
         self.messages = message
         self.crypto_scheme = crypto_scheme
         self.hash_scheme = hash_scheme
-        
+        self.window_size = window_size
     
     def batch_decode(self, prompts, generated_texts, batch_size=1):
         """
@@ -74,7 +74,7 @@ class BatchWatermarkDecoder:
             
             # Tokenize prompts and generated texts together with padding
             batch_inputs = self.tokenizer1(batch_prompts, return_tensors="pt", padding=True).to(self.device)
-            batch_full_inputs = self.tokenizer2(batch_texts, return_tensors="pt", padding=True).to(self.device)
+            batch_full_inputs = self.tokenizer2(batch_texts, return_tensors="pt", padding=True, add_special_tokens=False).to(self.device)
             batch_full_inputs = torch.cat((batch_inputs.input_ids, batch_full_inputs.input_ids), dim = 1).long().to(self.device)
             # print('Decpder IDs ',batch_inputs.input_ids)
 
@@ -113,11 +113,11 @@ class BatchWatermarkDecoder:
         
         prev_decoded_indices = set()
         if self.hash_scheme == 'hashlib':
-            prev_tokens = ["<empty>", "<empty>", "<empty>"]
-            for i in range(max(0, len(prompt_input_ids) - 3), len(prompt_input_ids)):
+            prev_tokens = ["<empty>"] * self.window_size
+            for i in range(max(0, len(prompt_input_ids) - self.window_size), len(prompt_input_ids)):
                 token = prompt_input_ids[i]
                 prev_tokens.append(self.tokenizer1.decode(token.item()))
-            prev_tokens = prev_tokens[-3:]
+            prev_tokens = prev_tokens[-self.window_size:]
         elif self.hash_scheme == 'kmeans':
             # Initialize last_twenty_tokens and prev3_generated_tokens
             last_twenty_tokens = []
@@ -143,7 +143,7 @@ class BatchWatermarkDecoder:
             words = word_tokenize(merged_string)
 
             # Initialize prev3_generated_tokens (last 3 words, pad with '.')
-            prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
+            prev_tokens = ['.'] * (self.window_size - len(words)) + words[-self.window_size:]
 
         # print('Decoder last 3 words: ', prev_tokens)
 
@@ -213,7 +213,7 @@ class BatchWatermarkDecoder:
                 words = word_tokenize(merged_string)
 
                 # Initialize prev3_generated_tokens (last 3 words, pad with '.')
-                prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
+                prev_tokens = ['.'] * (self.window_size - len(words)) + words[-self.window_size:]
 
 
             # print('Decoder last 3 words: ', prev_tokens)

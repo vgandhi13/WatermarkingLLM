@@ -1,7 +1,7 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import torch.nn.functional as F
-from batch_warper import BatchTopPLogitsWarper
+from batch_warper_vary_context_window import BatchTopPLogitsWarper
 import joblib
 from gensim.models import FastText
 import os
@@ -47,7 +47,7 @@ class LogitsProcessorList(list):
         return scores
 
 
-def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash_scheme, max_tokens=100, batch_size=4, kmeans_model_path="kmeans_model3.pkl"):
+def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash_scheme, max_tokens=100, batch_size=4, kmeans_model_path="kmeans_model3.pkl", window_size=3):
     """
     Encode watermarks into text generated from multiple prompts simultaneously.
     
@@ -123,7 +123,8 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash
             crypto_scheme=crypto_scheme,
             fasttext_model = fasttext_model,
             kmeans_model = kmeans_model,
-            hash_scheme=hash_scheme
+            hash_scheme=hash_scheme,
+            window_size=window_size
         )
         
         # # Generate tokens for the batch
@@ -162,7 +163,9 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash
             
             # Find where the generated text starts after the prompt
             if full_text.startswith(prompt_text):
+                # print("Prompt found at the beginning of the generated text", prompt_text)
                 generated_text = full_text[len(prompt_text):]
+                # print("Generated text: ", generated_text)
             else:
                 # Fallback if exact prompt isn't found at the beginning
                 generated_text = full_text

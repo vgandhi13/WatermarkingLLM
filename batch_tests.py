@@ -62,10 +62,10 @@ results, actual_model = batch_encoder(PROMPTS, max_tokens=MAX_TOKENS, batch_size
 
 decoder = BatchWatermarkDecoder(actual_model, message=MESSAGES, dec_method=ENC_DEC_METHOD, model_name = MODEL, crypto_scheme=CRYPTO_SCHEME, hash_scheme=HASH_SCHEME)
 decoded_results = decoder.batch_decode(
-[r["prompt"] for r in results],
-[r["generated_text"] for r in results],
-batch_size=BATCH_SIZE
-)
+        [r["prompt"] for r in results],
+        [r["generated_text"] for r in results],
+        batch_size=BATCH_SIZE
+    )
 
 for i in range(0, len(results), BATCH_SIZE):
 
@@ -126,7 +126,8 @@ for i in range(0, len(results), BATCH_SIZE):
 
     for i, enc_arr in enc_idx_bit_map.items(): #change the decoding
         if i not in ext_idx_bit_map:
-            break
+            continue
+        
         dec_arr = ext_idx_bit_map[i]
         for j in range(len(enc_arr)):
             if j>= len(dec_arr):
@@ -135,6 +136,7 @@ for i in range(0, len(results), BATCH_SIZE):
                 matches += 1
         num_enc_bits += len(enc_arr)
         num_dec_bits += len(dec_arr)
+        
     # print(matches, num_enc_bits, num_dec_bits)
     print("Precision is ", matches/num_dec_bits)
     print("Recall is ", matches/num_enc_bits)

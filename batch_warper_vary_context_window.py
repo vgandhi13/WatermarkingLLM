@@ -35,7 +35,14 @@ class BatchTopPLogitsWarper(LogitsProcessor):
             batch_token_probs,
             batch_t_enc, 
             batch_prob_start,
-                 batch_messages, enc_method, input_ids, batch_size,crypto_scheme, fasttext_model, kmeans_model, hash_scheme = "kmeans", model_name = "gpt2", t: float = 0.5, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
+            batch_messages,
+            enc_method,
+            input_ids,
+            batch_size,
+            crypto_scheme,
+            fasttext_model,
+            kmeans_model,
+            hash_scheme = "kmeans", model_name = "gpt2", t: float = 0.5, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1, window_size: int = 3):
         if not isinstance(min_tokens_to_keep, int) or (min_tokens_to_keep < 1):
             raise ValueError(f"`min_tokens_to_keep` has to be a positive integer, but is {min_tokens_to_keep}")
 
@@ -52,6 +59,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
         self.fasttext_model = fasttext_model
         self.kmeans_model = kmeans_model
         self.hash_scheme = hash_scheme
+        self.window_size = window_size
         
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
         self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -67,7 +75,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
         self.index = []
         self.bit = []
         self.t = []
-        self.prev3_generated_tokens = []
+        self.prev_generated_tokens = []
         self.last_twenty_tokens = []
         self.prev_encoded_indices = []
         
@@ -92,12 +100,12 @@ class BatchTopPLogitsWarper(LogitsProcessor):
         # Initialize state for each sequence in the batch
         for b in range(batch_size):
             if hash_scheme == 'hashlib':
-                # Initialize context window (previous 3 tokens)
-                prev_tokens = ["<empty>", "<empty>", "<empty>"]
-                for i in range(max(0, len(input_ids[b]) - 3), len(input_ids[b])):
+                # Initialize context window (previous self.window_size tokens)
+                prev_tokens = ["<empty>"] * self.window_size
+                for i in range(max(0, len(input_ids[b]) - self.window_size), len(input_ids[b])):
                     token = input_ids[b, i]
                     prev_tokens.append(self.tokenizer.decode(token.item()))
-                prev_tokens = prev_tokens[-3:]
+                prev_tokens = prev_tokens[-self.window_size:]
                 
                 # Hash the context to get the bit index
                 idx = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.codewords[b])
@@ -124,18 +132,18 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 # Tokenize into words
                 words = word_tokenize(merged_string)
                 
-                # Get last 3 words (pad with periods if needed)
-                prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
+                # Get last self.window_size words (pad with periods if needed)
+                prev_tokens = ['.'] * (self.window_size - len(words)) + words[-self.window_size:]
                 
-                # print('Encoder last 3 words constructor: ', prev_tokens)
+                # print('Encoder last self.window_size words constructor: ', prev_tokens)
 
                 embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
                 avg_embedding = sum(embeddings) / len(embeddings)
                 # Reshape to (1, -1) since predict expects a 2D array
                 avg_embedding = avg_embedding.reshape(1, -1)
                 idx = self.kmeans_model.predict(avg_embedding)[0]  % len(self.codewords[b])
-            # Append the last 3 words for this batch index
-            self.prev3_generated_tokens.append(prev_tokens)
+            # Append the last self.window_size words for this batch index
+            self.prev_generated_tokens.append(prev_tokens)
             self.prev_encoded_indices.append(set([idx]))
             self.index.append(idx)
             
@@ -166,9 +174,9 @@ class BatchTopPLogitsWarper(LogitsProcessor):
 
                 if self.hash_scheme == 'hashlib':
                     # Update context window
-                    if len(self.prev3_generated_tokens[b]) == 3:
-                        self.prev3_generated_tokens[b] = self.prev3_generated_tokens[b][1:]
-                    self.prev3_generated_tokens[b].append(self.tokenizer.decode(sampled_token.item()))
+                    if len(self.prev_generated_tokens[b]) == self.window_size:
+                        self.prev_generated_tokens[b] = self.prev_generated_tokens[b][1:]
+                    self.prev_generated_tokens[b].append(self.tokenizer.decode(sampled_token.item()))
                 elif self.hash_scheme == 'kmeans':
                         
                     # Get the token that was sampled in the previous step
@@ -198,12 +206,12 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                     # Tokenize into words
                     words = word_tokenize(merged_string)
 
-                    # Get last 3 words (pad with periods if needed)
-                    prev_tokens = ['.'] * (3 - len(words)) + words[-3:]
+                    # Get last self.window_size words (pad with periods if needed)
+                    prev_tokens = ['.'] * (self.window_size - len(words)) + words[-self.window_size:]
 
-                    # Update prev3_generated_tokens[b] with the new context
-                    self.prev3_generated_tokens[b] = prev_tokens
-                    # print('Encoder last 3 words call: ', prev_tokens)
+                    # Update prev_generated_tokens[b] with the new context
+                    self.prev_generated_tokens[b] = prev_tokens
+                    # print('Encoder last self.window_size words call: ', prev_tokens)
                 
                 
                 # Initial token tracking (will be updated if it's a question mark token)
@@ -222,7 +230,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                         self.questionmark_token_higher_prob[b] - self.questionmark_token_lower_prob[b])
                 else:
                     if self.hash_scheme == 'hashlib':
-                        idx = new_index = int(hashlib.md5("".join(self.prev3_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.codewords[b])
+                        idx = new_index = int(hashlib.md5("".join(self.prev_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.codewords[b])
                     elif self.hash_scheme == 'kmeans':
                         embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
                         
@@ -249,7 +257,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                             print('Currently encoded bits:', self.prev_encoded_indices[b])
                             self.bit[b] = str(random.randint(0,1))
                             print('Randomly assigned bit:', self.bit[b])
-                    self.index[b] = new_index #Earlier: self.index[b] = int(hashlib.md5("".join(self.prev3_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.E)
+                    self.index[b] = new_index #Earlier: self.index[b] = int(hashlib.md5("".join(self.prev_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.E)
                     self.prev_encoded_indices[b].add(new_index)
                     self.t[b] = 0.5  # Reset threshold
                 

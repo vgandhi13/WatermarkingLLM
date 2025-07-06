@@ -12,20 +12,23 @@ import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
-from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import precision_recall_curve, average_precision_score
 import torch.nn.functional as F
 from enum import Enum
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from batch_main import batch_encoder
-from batch_decoder import BatchWatermarkDecoder
+from batch_main_vary_context_window import batch_encoder
+from batch_decoder_vary_context_window import BatchWatermarkDecoder
 from unwatermarked_samp import batch_encoder as batch_unencoder
 import datasets
 from ecc.ciphertext import Ciphertext
 from ecc.mceliece import McEliece
 
-GREEN = "\033[92m"
-RED = "\033[91m"
-RESET = "\033[0m"
+# GREEN = "\033[92m"
+# RED = "\033[91m"
+# RESET = "\033[0m"
+GREEN = ""
+RED = ""
+RESET = ""
 # token = 'hf_your_huggingface_token_here'  # Replace with your actual Hugging Face token
 # login(token = token)
 
@@ -37,6 +40,8 @@ class EncDecMethod(Enum):
 MODEL_NAMES = ['gpt2', 'gpt2-medium',   "meta-llama/Llama-3.2-1B",'ministral/Ministral-3b-instruct', "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k", "meta-llama/Meta-Llama-3-8B"]
 
 #----------------USER INPUT VARIABLES BEGIN------------------
+print("Testing with kmeans clustering variation")
+
 BATCH_SIZE = 4
 CRYPTO_SCHEME = 'Ciphertext' # ['McEliece', 'Ciphertext']
 MAX_TOKENS = 100
@@ -44,6 +49,11 @@ ENC_DEC_METHOD = EncDecMethod.STANDARD.value
 HASH_SCHEME = 'kmeans' # ['hashlib', 'kmeans']
 MODEL = MODEL_NAMES[0]
 print('Model used was ', MODEL)
+
+KMEANS_MODEL = "kmeans_model3.pkl"  # Path to the KMeans model file
+print('KMeans model used was: ', MODEL)
+window_size = 3
+print("Window size used was: ", window_size)
 
 def load_alpaca_dataset():
         """Load Alpaca evaluation set with outputs"""
@@ -64,33 +74,50 @@ def load_alpaca_dataset():
 alpaca_prompts = load_alpaca_dataset()
 PROMPTS = [x['prompt'] for x in alpaca_prompts]
 
-# PROMPTS = PROMPTS[:1]
-print(len(PROMPTS))
+PROMPTS = PROMPTS[:2]
+print("Number of prompts: ", len(PROMPTS))
 
 MESSAGES = [
     'Asteroid',
 ] * len(PROMPTS)
-
-
     
 
 #First entry of each batch table will be printed
 #----------------USER INPUT VARIABLES END------------------
 watermarked_predictions =  []
 actual_model_fr = None
+
 def generate_watermarked_text():
-    results, actual_model = batch_encoder(PROMPTS, max_tokens=MAX_TOKENS, batch_size=BATCH_SIZE, enc_method = ENC_DEC_METHOD, messages=MESSAGES, model_name = MODEL, crypto_scheme = CRYPTO_SCHEME, hash_scheme=HASH_SCHEME)
+    results, actual_model = batch_encoder(
+        PROMPTS,
+        max_tokens=MAX_TOKENS,
+        batch_size=BATCH_SIZE,
+        enc_method = ENC_DEC_METHOD,
+        messages=MESSAGES,
+        model_name = MODEL,
+        crypto_scheme = CRYPTO_SCHEME,
+        hash_scheme=HASH_SCHEME,
+        kmeans_model_path=KMEANS_MODEL,
+        window_size=window_size)
 
     actual_model_fr = actual_model
-    decoder = BatchWatermarkDecoder(actual_model, message=MESSAGES, dec_method=ENC_DEC_METHOD, model_name = MODEL, crypto_scheme=CRYPTO_SCHEME, hash_scheme=HASH_SCHEME)
+    decoder = BatchWatermarkDecoder(
+        actual_model,
+        message=MESSAGES,
+        dec_method=ENC_DEC_METHOD,
+        model_name = MODEL,
+        crypto_scheme=CRYPTO_SCHEME,
+        hash_scheme=HASH_SCHEME,
+        kmeans_model_path=KMEANS_MODEL,
+        window_size=window_size)
+
     decoded_results = decoder.batch_decode(
-    [r["prompt"] for r in results],
-    [r["generated_text"] for r in results],
-    batch_size=BATCH_SIZE
-    )
+            [r["prompt"] for r in results],
+            [r["generated_text"] for r in results],
+            batch_size=BATCH_SIZE
+        )
 
     for i in range(0, len(results), BATCH_SIZE):
-
         encoded_bits, encoded_bit_indices, generated_text, sampled_tokens_en, token_sampled_probs_en, t_enc, probs_start_enc = results[i]['encoded_bits'], results[i]['encoded_indices'], results[i]['generated_text'], results[i]['sampled_tokens'], results[i]['token_probs'], results[i]['t_values'], results[i]['prob_starts']
         extracted_bits, extracted_indices, sampled_tokens_dec, token_sampled_probs_dec, t_ext, probs_start_ext = decoded_results[i]['extracted_bits'], decoded_results[i]['extracted_indices'], decoded_results[i]['sampled_tokens'], decoded_results[i]['token_probs'], decoded_results[i]['threshold_values'], decoded_results[i]['prob_starts']
         
@@ -118,9 +145,8 @@ def generate_watermarked_text():
         enc_idx_bit_map = defaultdict(list)
         ext_idx_bit_map = defaultdict(list)
 
-
         for i in range(len(encoded_bits)):
-            if encoded_bits[i]  != '?':
+            if encoded_bits[i] != '?':
                 enc_idx_bit_map[encoded_bit_indices[i]].append(encoded_bits[i])
 
         for i in range(len(extracted_bits)):
@@ -132,42 +158,42 @@ def generate_watermarked_text():
 
         not_decoded = 0
         bit_not_same = 0
+
         for k, v in ext_idx_bit_map.items():
             if k not in enc_idx_bit_map:
                 not_decoded += 1
             else:
                 if v != enc_idx_bit_map[k]:
-                    bit_not_same+=1
+                    bit_not_same += 1
         
-        print('Indices which were encoded but not decoded ',not_decoded)
-        print('Indices were bits decoded dont match bits encoded', bit_not_same)
+        print('Indices which were encoded but not decoded ', not_decoded)
+        print('Indices were bits decoded dont match bits encoded ', bit_not_same)
 
         matches = 0
         num_enc_bits = 0
         num_dec_bits = 0
 
-        for i, enc_arr in enc_idx_bit_map.items(): #change the decoding
+        for i, enc_arr in enc_idx_bit_map.items(): # change the decoding
             if i not in ext_idx_bit_map:
                 break
             dec_arr = ext_idx_bit_map[i]
             for j in range(len(enc_arr)):
-                if j>= len(dec_arr):
+                if j >= len(dec_arr):
                     break
                 if enc_arr[j] == dec_arr[j]:
                     matches += 1
             num_enc_bits += len(enc_arr)
             num_dec_bits += len(dec_arr)
+
         # print(matches, num_enc_bits, num_dec_bits)
         watermarked_predictions.append(matches/num_dec_bits)
+
         if CRYPTO_SCHEME == 'Ciphertext':
             print("Precision is ", matches/num_dec_bits)
             print("Recall is ", matches/num_enc_bits)
         else:
             # need to just check if the codeword decodes correctly.
             pass
-            
-
-
 
         # Print unified table if there's a mismatch
         if not (bits_match and indices_match and tokens_match and probs_match):
@@ -208,19 +234,18 @@ def generate_watermarked_text():
 
             print("\n" + "-" * 150 + "\n")
 
-
-        
-    return actual_model
-    
-    
-    
+    return actual_model    
 
 
 def calculate_metrics(y_true, y_pred):
+    print("Predictions : ", y_pred)
+    print("Ground Truth : ", y_true)
+
     tp = sum(1 for t, p in zip(y_true, y_pred) if t == 1 and p == 1)
     tn = sum(1 for t, p in zip(y_true, y_pred) if t == 0 and p == 0)
     fp = sum(1 for t, p in zip(y_true, y_pred) if t == 0 and p == 1)
     fn = sum(1 for t, p in zip(y_true, y_pred) if t == 1 and p == 0)
+    print(tp, tn, fp, fn)
     
     tpr = tp / (tp + fn) if (tp + fn) > 0 else 0  # recall
     tnr = tn / (tn + fp) if (tn + fp) > 0 else 0
@@ -238,21 +263,22 @@ def calculate_metrics(y_true, y_pred):
         'fnr': fnr
     }
 
+
 unwatermarked_predictions =  []
 def generate_unwatermarked_text(actual_model_fr):
     results = batch_unencoder(PROMPTS, max_tokens=MAX_TOKENS, batch_size=BATCH_SIZE, model_name = MODEL)
     print("UNWATERMARKED TEXT GENERATED")
 
     decoder = BatchWatermarkDecoder(actual_model_fr, message=MESSAGES, dec_method=ENC_DEC_METHOD, model_name = MODEL, crypto_scheme=CRYPTO_SCHEME, hash_scheme=HASH_SCHEME)
+    
     print("UNWATERMARKED TEXT DETECTED")
     decoded_results = decoder.batch_decode(
-    [r["prompt"] for r in results],
-    [r["generated_text"] for r in results],
-    batch_size=BATCH_SIZE
-    )
+            [r["prompt"] for r in results],
+            [r["generated_text"] for r in results],
+            batch_size=BATCH_SIZE
+        )
 
     for i in range(0, len(results), BATCH_SIZE):
-
         encoded_bits, encoded_bit_indices, generated_text, sampled_tokens_en, token_sampled_probs_en, t_enc, probs_start_enc = [], [], results[i]['generated_text'], [], [], [], []
         extracted_bits, extracted_indices, sampled_tokens_dec, token_sampled_probs_dec, t_ext, probs_start_ext = decoded_results[i]['extracted_bits'], decoded_results[i]['extracted_indices'], decoded_results[i]['sampled_tokens'], decoded_results[i]['token_probs'], decoded_results[i]['threshold_values'], decoded_results[i]['prob_starts']
         
@@ -279,6 +305,7 @@ def generate_unwatermarked_text(actual_model_fr):
 
         enc_idx_bit_map = defaultdict(list)
         ext_idx_bit_map = defaultdict(list)
+
         if CRYPTO_SCHEME == 'McEliece':
             codeword = McEliece().encrypt(MESSAGES[0].encode('utf-8'))[0]
             codeword = ''.join(format(byte, '08b') for byte in codeword)
@@ -286,18 +313,17 @@ def generate_unwatermarked_text(actual_model_fr):
         elif CRYPTO_SCHEME == 'Ciphertext':
             ciphertext = Ciphertext()
             codeword = ciphertext.encrypt(100)
+
         encoded_bits = [c for c in codeword]
         encoded_bit_indices = [i for i in range(len(encoded_bits))]
 
         for i in range(len(encoded_bits)):
-            if encoded_bits[i]  != '?':
+            if encoded_bits[i] != '?':
                 enc_idx_bit_map[encoded_bit_indices[i]].append(encoded_bits[i])
 
         for i in range(len(extracted_bits)):
             if extracted_bits[i] != '?':
                 ext_idx_bit_map[extracted_indices[i]].append(extracted_bits[i])
-        
-        
 
         matches = 0
         num_enc_bits = 0
@@ -308,7 +334,7 @@ def generate_unwatermarked_text(actual_model_fr):
                 continue
             dec_arr = ext_idx_bit_map[i]
             for j in range(len(enc_arr)):
-                if j>= len(dec_arr):
+                if j >= len(dec_arr):
                     break
                 if enc_arr[j] == dec_arr[j]:
                     matches += 1
@@ -316,28 +342,51 @@ def generate_unwatermarked_text(actual_model_fr):
             num_dec_bits += len(dec_arr)
         
         print(matches, num_enc_bits, num_dec_bits)
-        unwatermarked_predictions.append((matches/num_dec_bits if num_dec_bits>0 else 0))
-        print("Precision is ", (matches/num_dec_bits if num_dec_bits>0 else 0))
-        print("Recall is ", (matches/num_enc_bits if num_enc_bits>0 else 0))
+        unwatermarked_predictions.append((matches/num_dec_bits if num_dec_bits > 0 else 0))
+        print("Precision is ", (matches/num_dec_bits if num_dec_bits > 0 else 0))
+        print("Recall is ", (matches/num_enc_bits if num_enc_bits > 0 else 0))
 
         # Print unified table if there's a mismatch
         
-            
+
 actual_model_fr = generate_watermarked_text()
 generate_unwatermarked_text(actual_model_fr)
+
 all_predictions = watermarked_predictions + unwatermarked_predictions
-print(all_predictions)
-all_ground_truth = [1]*len(watermarked_predictions) + [0]*len(unwatermarked_predictions)
-metrics = calculate_metrics(all_ground_truth, all_predictions)
+all_ground_truth = [1] * len(watermarked_predictions) + [0] * len(unwatermarked_predictions)
 
+print("All predictions: ", all_predictions)
+print("Ground Truth : ", all_ground_truth)
 
+precision, recall, thresholds = precision_recall_curve(all_ground_truth, all_predictions)
+ap = average_precision_score(all_ground_truth, all_predictions)
 
-precision, recall, _ = precision_recall_curve(all_ground_truth, all_predictions)
-disp = PrecisionRecallDisplay(precision=precision, recall=recall)
-disp.plot()
-disp.plot().figure_.savefig('precision_recall_curve_ciphertext_next.png')
+f1_scores = 2 * precision[:-1] * recall[:-1] / (precision[:-1] + recall[:-1] + 1e-8)
+best_idx = f1_scores.argmax()
+best_threshold = thresholds[best_idx]
 
-    
+binary_predictions = [1 if p >= best_threshold else 0 for p in all_predictions]
+print("Binary predictions: ", binary_predictions)
+print("Ground truth: ", all_ground_truth)
+metrics = calculate_metrics(all_ground_truth, binary_predictions)
+
+plt.figure(figsize=(8, 6))
+plt.plot(recall, precision, label=f'PR Curve (AP = {ap:.2f})')
+plt.scatter(recall[best_idx], precision[best_idx], color='red', label=f'Best Threshold = {best_threshold:.2f}', zorder=5)
+plt.axhline(precision[best_idx], color='red', linestyle='--', linewidth=0.8)
+plt.axvline(recall[best_idx], color='red', linestyle='--', linewidth=0.8)
+
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.title('Precision-Recall Curve')
+plt.legend(loc='lower left')
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+plt.savefig('PR_curve_ciphertext_standard_kmeans_2040.png')
+plt.close()
+
 print("\nWatermarking Detection Metrics:")
 print("-" * 50)
 print(f"Precision: {metrics['precision']:.4f}")

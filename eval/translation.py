@@ -77,7 +77,7 @@ def load_dataset():
 prompts = load_dataset()
 PROMPTS = [p.strip().replace('\n', '').strip('"').strip("'") for p in prompts]
 
-PROMPTS = PROMPTS[:100]
+PROMPTS = PROMPTS[:50]
 
 
 def encode_prompt(prompt):
@@ -97,7 +97,6 @@ MESSAGES = [
 
 load_dotenv()
 openai.api_key_path = "openai_key.txt"
-
 
 def watermarked_detected(watermarked_results, decoded_results, i, when, avg_before, avg_after):
         # print("GENERATED TEXT: ", watermarked_results[i]['generated_text'])
@@ -178,44 +177,44 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
         # print(enc_idx_bit_map)
         # print(ext_idx_bit_map)
         #need to calcualte percision based on the decoded bits and the ground truth.
-        ground_truth_bit_map = defaultdict(list)
-        if CRYPTO_SCHEME == 'Ciphertext':
-            ciphertext = Ciphertext()
-            ground_truth_ciphertext = ciphertext.encrypt(160)
-            for i in range(len(ground_truth_ciphertext)):
-                ground_truth_bit_map[i].append(ground_truth_ciphertext[i])
-            # print("Ground truth bit map", ground_truth_bit_map)
-            matches = 0
-            num_enc_bits = 0
-            num_dec_bits = 0
-            # print(ext_idx_bit_map)
-            for i, dec_arr in ext_idx_bit_map.items(): #change the decoding
-                if i not in ground_truth_bit_map:
-                    continue
-                bit = ground_truth_bit_map[i]
-                for j in range(len(dec_arr)):
-                    if bit[0] == dec_arr[j]:
-                        matches += 1
+        # ground_truth_bit_map = defaultdict(list)
+        # if CRYPTO_SCHEME == 'Ciphertext':
+        #     ciphertext = Ciphertext()
+        #     ground_truth_ciphertext = ciphertext.encrypt(160)
+        #     for i in range(len(ground_truth_ciphertext)):
+        #         ground_truth_bit_map[i].append(ground_truth_ciphertext[i])
+        #     # print("Ground truth bit map", ground_truth_bit_map)
+        #     matches = 0
+        #     num_enc_bits = 0
+        #     num_dec_bits = 0
+        #     # print(ext_idx_bit_map)
+        #     for i, dec_arr in ext_idx_bit_map.items(): #change the decoding
+        #         if i not in ground_truth_bit_map:
+        #             continue
+        #         bit = ground_truth_bit_map[i]
+        #         for j in range(len(dec_arr)):
+        #             if bit[0] == dec_arr[j]:
+        #                 matches += 1
                 
-                num_dec_bits += len(dec_arr)
-            print("Precision_watermarked is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
-            matches = 0
-            num_enc_bits = 0
-            num_dec_bits = 0
-            # print(ext_idx_bit_map)
-            for i, dec_arr in ext_idx_bit_map.items(): #change the decoding
-                if i not in enc_idx_bit_map:
-                    continue
-                bit = ground_truth_bit_map[i]
-                for j in range(len(dec_arr)):
-                    if bit[0] == dec_arr[j]:
-                        matches += 1
+        #         num_dec_bits += len(dec_arr)
+        #     print("Precision_watermarked is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
+        #     matches = 0
+        #     num_enc_bits = 0
+        #     num_dec_bits = 0
+        #     # print(ext_idx_bit_map)
+        #     for i, dec_arr in ext_idx_bit_map.items(): #change the decoding
+        #         if i not in enc_idx_bit_map:
+        #             continue
+        #         bit = ground_truth_bit_map[i]
+        #         for j in range(len(dec_arr)):
+        #             if bit[0] == dec_arr[j]:
+        #                 matches += 1
                 
-                num_dec_bits += len(dec_arr)
-            print("Precision_watermarked_correct_hashing is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
-        else:
+        #         num_dec_bits += len(dec_arr)
+        #     print("Precision_watermarked_correct_hashing is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
+        # else:
             # need to just check if the codeword decodes correctly.
-            pass
+            # pass
         if not (bits_match and indices_match and tokens_match and probs_match):
             print("\n⚠️ Mismatch Detected! Side-by-Side Comparison Table:\n")
             print(f"{'Idx':<5} | {'EBit':<3} | {'ExBit':<3} | {'EIdx':<3} | {'ExIdx':<3} | "
@@ -253,72 +252,59 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
                     f"{e_start_prob:<14} | {x_start_prob:<14.6f} | {e_t:<8} | {x_t:<8.6f}")
         return avg_before, avg_after
 
-    
-def paraphrase_overall(text: str) -> str:
-    
+
+def language_translation(text):
     prompt = (
-            "Given the following text, paraphrase it by replacing words with their synonyms. Only return the paraphrased text in your response.\n"
+            "Given the following text, translate it to German. Only return the translated text in your response.\n"
         )
         
     try:
             response = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
+                model="gpt-4.1-mini",
                 messages=[
-                    {"role": "system", "content": "You replace words with their synomyms as if you are a high school student who wants to make their text not look AI generated"},
+                    {"role": "system", "content": "You are an expert at translating text to German. "},
                     {"role": "user", "content": text}
                 ],
                 temperature=1,
                 max_tokens=MAX_TOKENS
             )
             # time.sleep(1)  # Rate limit
-            paraphrased_text = response.choices[0].message.content
+            translated_text = response.choices[0].message.content
     except Exception as e:
-            print(f"Error during paraphrasing text: {str(e)}")
+            print(f"Error during translation text: {str(e)}")
             
     
-    return paraphrased_text
+    return translated_text
 
-
-def paraphrase_sentence(text: str) -> str:
-    """Split text into sentences, paraphrase each one with context, and rejoin."""
-    sentences = sent_tokenize(text)
-    paraphrased_sentences = []
-    
-    for i, sentence in enumerate(sentences):
-        context = " ".join(sentences[:i]) if i > 0 else ""
-        prompt = (
-            "Given some previous context and a sentence "
-            "following that context, paraphrase the "
-            "current sentence. Only return the "
-            "paraphrased sentence in your response. Do not add any other text to your response.\n"
-            f"Previous context: {context}\n"
-            f"Current sentence to paraphrase: {sentence}\n"
-            "Your paraphrase of the current sentence:"
+def language_to_english_translation(text):
+    prompt = (
+            "Given the following text, translate it to English. Only return the translated text in your response.\n"
         )
         
-        try:
+    try:
             response = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
+                model="gpt-4.1-mini",
                 messages=[
-                    {"role": "system", "content": "You are an expert at paraphrasing sentences while maintaining their meaning and contextual relevance."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": "You are an expert at translating text from German to English. "},
+                    {"role": "user", "content": text}
                 ],
-                temperature=0.7,
+                temperature=1,
                 max_tokens=MAX_TOKENS
             )
             # time.sleep(1)  # Rate limit
-            paraphrased = response.choices[0].message.content
-            paraphrased_sentences.append(paraphrased)
-        except Exception as e:
-            print(f"Error during paraphrasing sentence {i+1}: {str(e)}")
-            paraphrased_sentences.append(sentence)
+            translated_text = response.choices[0].message.content
+    except Exception as e:
+            print(f"Error during translation text: {str(e)}")
+            
     
-    return " ".join(paraphrased_sentences)
+    return translated_text
 
 def main():
-    """Main function to run the paraphrase testing."""
-    avg_before = 0 
+    avg_before = 0
     avg_after = 0
+    avg_difference = 0
+    translated_results_1 = []
+    translated_results_2 = []
     watermarked_results, actual_model = batch_encoder(
             PROMPTS,
             max_tokens=MAX_TOKENS,
@@ -331,47 +317,41 @@ def main():
         )
     decoder = BatchWatermarkDecoder(actual_model, message=MESSAGES, dec_method=ENC_DEC_METHOD, model_name = MODEL, crypto_scheme=CRYPTO_SCHEME, hash_scheme=HASH_SCHEME, kmeans_model_path=KMEANS_MODEL,
         window_size=window_size)
-    
-    paraphrased_results = []
-    watermarked_results_before = []
-    
-    skip_indices = []
-
     for i in range(len(watermarked_results)):
-        #print("Original Text")
-        #print(watermarked_results[i]['generated_text'])
-        #print("Paraphrased Text")
-        paraphrased_results.append(paraphrase_overall(watermarked_results[i]['generated_text']))
-        watermarked_results_before.append(watermarked_results[i]['generated_text'])
-        #print(paraphrased_results[-1])
+        temp = language_translation(watermarked_results[i]['generated_text'])
+        translated_results_1.append(temp)
+        temp2 = language_to_english_translation(temp)
+        translated_results_2.append(temp2)
     decoded_results_before = decoder.batch_decode(
         [r["prompt"] for r in watermarked_results],
-        watermarked_results_before,
+        [r['generated_text'] for r in watermarked_results],
         batch_size=BATCH_SIZE)  
     decoded_results_after = decoder.batch_decode(
         [r["prompt"] for r in watermarked_results],
-        paraphrased_results,
+        translated_results_2,
         batch_size=BATCH_SIZE)
     for i in range(len(decoded_results_after)):
-        avg_difference = 0
-        if i not in skip_indices:
-            print("Original Text: ")
-            print(" ")
-            print(watermarked_results[i]['generated_text'])
-            print("Length of original text: ", len(watermarked_results[i]['generated_text'].split(" ")))
-            print("Decoding Results: ")
-            avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_before, i, 'before', avg_before, avg_after)
-            watermarked_results[i]['generated_text'] = paraphrased_results[i]
-            print("Paraphrased Text: ")
-            print(" ")
-            print(paraphrased_results[i])
-            print("Decoding Results")
-            avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_after, i, 'after', avg_before, avg_after)
-            avg_difference = avg_difference + (avg_before - avg_after)
-        # print(avg_before, avg_after)
+        print("Original Text: ")
+        print(watermarked_results[i]['generated_text'])
+        print("Length of original text: ", len(watermarked_results[i]['generated_text'].split(" ")))
+        print("Decoding Results: ")
+        avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_before, i, 'before', avg_before, avg_after)
+        watermarked_results[i]['generated_text'] = translated_results_2[i]
+        print("Translated Text: ")
+        print(translated_results_1[i])
+        print("Round Trip Translated Text: ")
+        print(translated_results_2[i])
+        print("Decoding Results")
+        avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_after, i, 'after', avg_before, avg_after)
+        avg_difference = avg_difference + (avg_before - avg_after)
     print("Average precision before watermarking: ", avg_before/len(PROMPTS))
     print("Average precision after watermarking: ", avg_after/len(PROMPTS))
     print("Percentage decrease in precision_send: ", (avg_difference)/len(PROMPTS))
+
+
+
+
+
 def graph_precision_send(avg_befores, avg_afters):
     pass
 if __name__ == "__main__":

@@ -162,14 +162,27 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash
             prompt_text = batch_prompts[b]
             
             # Find where the generated text starts after the prompt
+            # print("FULL TEXT: ", full_text)
+            # print("PROMPT TEXT: ", prompt_text)
+            end = len(" .assistant") 
+            prompt_stripped = prompt_text.replace("<|eot_id|>", "").replace("<|start_header_id|>", "").replace("<|end_header_id|>", "").replace("<|begin_of_text|>", "").replace(" . ", ". ").replace(" , ", ", ").replace(" ' ", "' ").replace(" '", "'")[:-end] + ". assistant"
+            # print("PROMPT STRIPPED: ", prompt_stripped)
             if full_text.startswith(prompt_text):
                 # print("Prompt found at the beginning of the generated text", prompt_text)
                 generated_text = full_text[len(prompt_text):]
                 # print("Generated text: ", generated_text)
+            elif full_text.startswith(prompt_stripped):
+                # print("Prompt found at the beginning of the generated text", prompt_stripped)
+                generated_text = full_text[len(prompt_stripped):]
+                # print("Generated text: ", generated_text)
+            elif "assistant" in full_text:
+                # print("Assistant found in the generated text", full_text)
+                generated_text = full_text[full_text.rfind("assistant")+len('assistant'):]
+                # print("Generated text: ", generated_text)
             else:
                 # Fallback if exact prompt isn't found at the beginning
                 generated_text = full_text
-            
+            # print("GENERATED TEXT: ", generated_text)
             results.append({
                 "prompt": prompt_text,
                 "generated_text": generated_text,

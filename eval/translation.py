@@ -44,7 +44,7 @@ print("Testing with kmeans clustering variation")
 
 BATCH_SIZE = 1
 CRYPTO_SCHEME = 'Ciphertext' # ['McEliece', 'Ciphertext']
-MAX_TOKENS = 300
+MAX_TOKENS = 400
 ENC_DEC_METHOD = EncDecMethod.STANDARD.value
 HASH_SCHEME = 'kmeans' # ['hashlib', 'kmeans']
 MODEL = MODEL_NAMES[-2]
@@ -255,14 +255,14 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
 
 def language_translation(text):
     prompt = (
-            "Given the following text, translate it to German. Only return the translated text in your response.\n"
+            "Given the following text, translate it to Spanish. Only return the translated text in your response.\n"
         )
         
     try:
             response = openai.ChatCompletion.create(
                 model="gpt-4.1-mini",
                 messages=[
-                    {"role": "system", "content": "You are an expert at translating text to German. "},
+                    {"role": "system", "content": "You are an expert at translating text to Spanish. "},
                     {"role": "user", "content": text}
                 ],
                 temperature=1,
@@ -285,7 +285,7 @@ def language_to_english_translation(text):
             response = openai.ChatCompletion.create(
                 model="gpt-4.1-mini",
                 messages=[
-                    {"role": "system", "content": "You are an expert at translating text from German to English. "},
+                    {"role": "system", "content": "You are an expert at translating text from Spanish to English. "},
                     {"role": "user", "content": text}
                 ],
                 temperature=1,

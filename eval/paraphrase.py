@@ -77,7 +77,7 @@ def load_dataset():
 prompts = load_dataset()
 PROMPTS = [p.strip().replace('\n', '').strip('"').strip("'") for p in prompts]
 
-PROMPTS = PROMPTS[:100]
+PROMPTS = PROMPTS[:50]
 
 
 def encode_prompt(prompt):
@@ -262,7 +262,7 @@ def paraphrase_overall(text: str) -> str:
         
     try:
             response = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
+                model="gpt-3.5-turbo-0125",
                 messages=[
                     {"role": "system", "content": "You replace words with their synomyms as if you are a high school student who wants to make their text not look AI generated"},
                     {"role": "user", "content": text}

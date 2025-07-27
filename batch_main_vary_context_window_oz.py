@@ -1,7 +1,7 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import torch.nn.functional as F
-from batch_warper import BatchTopPLogitsWarper
+from batch_warper_vary_context_window_oz import BatchTopPLogitsWarper
 import joblib
 from gensim.models import FastText
 import os
@@ -47,7 +47,7 @@ class LogitsProcessorList(list):
         return scores
 
 
-def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash_scheme, max_tokens=100, batch_size=4, kmeans_model_path="kmeans_model3.pkl"):
+def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash_scheme, max_tokens=100, batch_size=4, kmeans_model_path="kmeans_model3.pkl", window_size=3):
     """
     Encode watermarks into text generated from multiple prompts simultaneously.
     
@@ -64,7 +64,7 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash
     print(f"Using device: {device}")
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
     tokenizer.pad_token = tokenizer.eos_token  # Use the EOS token as the padding token
-    model = AutoModelForCausalLM.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
     model.eval()
     fasttext_model = None
     kmeans_model = None
@@ -123,7 +123,8 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash
             crypto_scheme=crypto_scheme,
             fasttext_model = fasttext_model,
             kmeans_model = kmeans_model,
-            hash_scheme=hash_scheme
+            hash_scheme=hash_scheme,
+            window_size=window_size
         )
         
         # # Generate tokens for the batch
@@ -150,7 +151,7 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash
         
         logits_processor = LogitsProcessorList()
         logits_processor.append(logits_processor_i)
-        output_sequences = model.generate(input_ids=input_ids.to(device), pad_token_id=tokenizer.eos_token_id, logits_processor=logits_processor, max_new_tokens=max_tokens, do_sample=True )
+        output_sequences = model.generate(input_ids=input_ids.to(device), logits_processor=logits_processor, max_new_tokens=max_tokens, do_sample=True, eos_token_id=None, temperature=1.0 )
         
         # Decode generated text for each sequence
         for b in range(actual_batch_size):
@@ -161,12 +162,27 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash
             prompt_text = batch_prompts[b]
             
             # Find where the generated text starts after the prompt
+            # print("FULL TEXT: ", full_text)
+            # print("PROMPT TEXT: ", prompt_text)
+            end = len(" .assistant") 
+            prompt_stripped = prompt_text.replace("<|eot_id|>", "").replace("<|start_header_id|>", "").replace("<|end_header_id|>", "").replace("<|begin_of_text|>", "").replace(" . ", ". ").replace(" , ", ", ").replace(" ' ", "' ").replace(" '", "'")[:-end] + ". assistant"
+            # print("PROMPT STRIPPED: ", prompt_stripped)
             if full_text.startswith(prompt_text):
+                # print("Prompt found at the beginning of the generated text", prompt_text)
                 generated_text = full_text[len(prompt_text):]
+                # print("Generated text: ", generated_text)
+            elif full_text.startswith(prompt_stripped):
+                # print("Prompt found at the beginning of the generated text", prompt_stripped)
+                generated_text = full_text[len(prompt_stripped):]
+                # print("Generated text: ", generated_text)
+            elif "assistant" in full_text:
+                # print("Assistant found in the generated text", full_text)
+                generated_text = full_text[full_text.rfind("assistant")+len('assistant'):]
+                # print("Generated text: ", generated_text)
             else:
                 # Fallback if exact prompt isn't found at the beginning
                 generated_text = full_text
-            
+            # print("GENERATED TEXT: ", generated_text)
             results.append({
                 "prompt": prompt_text,
                 "generated_text": generated_text,

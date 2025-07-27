@@ -12,6 +12,7 @@ nltk.download('punkt')  # Download the punkt tokenizer data
 from transformers import AutoTokenizer
 from datasets import load_dataset
 from batch_main_vary_context_window import batch_encoder
+from unwatermarked_samp import batch_encoder as batch_unencoder
 from batch_decoder_vary_context_window import BatchWatermarkDecoder
 from collections import defaultdict
 from datetime import datetime
@@ -37,7 +38,7 @@ class EncDecMethod(Enum):
     RANDOM = 'Random'
     NEXT = 'Next'
 
-MODEL_NAMES = ['gpt2', 'gpt2-medium',   "meta-llama/Llama-3.2-1B",'mistralai/Mistral-7B-v0.1', "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k", "meta-llama/Meta-Llama-3-8B", "meta-llama/Meta-Llama-3-8B-Instruct", "meta-llama/Llama-3.2-1B-Instruct"]
+MODEL_NAMES = ['gpt2', 'gpt2-medium',   "meta-llama/Llama-3.2-1B",'ministral/Ministral-3b-instruct', "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k", "meta-llama/Meta-Llama-3-8B", "meta-llama/Meta-Llama-3-8B-Instruct", "meta-llama/Llama-3.2-1B-Instruct"]
 
 #----------------USER INPUT VARIABLES BEGIN------------------
 print("Testing with kmeans clustering variation")
@@ -47,40 +48,40 @@ CRYPTO_SCHEME = 'Ciphertext' # ['McEliece', 'Ciphertext']
 MAX_TOKENS = 300
 ENC_DEC_METHOD = EncDecMethod.STANDARD.value
 HASH_SCHEME = 'kmeans' # ['hashlib', 'kmeans']
-MODEL = MODEL_NAMES[3]
+MODEL = MODEL_NAMES[-2]
 print('Model used was ', MODEL)
-paraphrase_prompt = "Please paraphrase the following paragraph by replacing the variables in the code with different variables. Return the paraphrased text only. \n"
-print('Paraphrase prompt used was: ', paraphrase_prompt)
+
 KMEANS_MODEL = "kmeans_model3.pkl"  # Path to the KMeans model file
 print('KMeans model used was: ', MODEL)
 window_size = 3
 print("Window size used was: ", window_size)
 
-def load_dataset():
-    """Load Alpaca evaluation set with outputs"""
-    dataset = datasets.load_dataset("tatsu-lab/alpaca")
+# def load_dataset():
+#     """Load Alpaca evaluation set with outputs"""
+#     dataset = datasets.load_dataset("tatsu-lab/alpaca")
     
-    # Get both instructions and outputs
-    titles_and_prompts = [
-        {
-            'instruction': instruction,
-            'input': input,
-            'output': output
-        }
-        for instruction, input, output in zip(
-            dataset['train']['instruction'],
-            dataset['train']['input'],
-            dataset['train']['output']
-        )
-    ]
-    return titles_and_prompts
+#     # Get both instructions and outputs
+#     titles_and_prompts = [
+#         {
+#             'instruction': instruction,
+#             'input': input,
+#             'output': output
+#         }
+#         for instruction, input, output in zip(
+#             dataset['train']['instruction'],
+#             dataset['train']['input'],
+#             dataset['train']['output']
+#         )
+#     ]
+#     return titles_and_prompts
 
 
-prompts = load_dataset()
-# Extract instructions from the Alpaca dataset, excluding those with input content
-PROMPTS = [p['instruction'] for p in prompts if( not p.get('input') or p['input'].strip() == '')]
+# prompts = load_dataset()
+# # Extract instructions from the Alpaca dataset, excluding those with input content
+# PROMPTS = [p['instruction'] for p in prompts if( not p.get('input') or p['input'].strip() == '')]
 
-PROMPTS = PROMPTS[:25]
+# PROMPTS = PROMPTS[:15]
+PROMPTS = ["Write the words 'I am happy' followed by a uniformly random bit 0/1 and repeat this 100 times"]
 
 
 def encode_prompt(prompt):
@@ -89,24 +90,7 @@ def encode_prompt(prompt):
     You are a helpful AI assistant who answers questions. <|eot_id|><|start_header_id|>user<|end_header_id|>''' + prompt + "<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
 
 
-# PROMPTS = [encode_prompt(p) for p in PROMPTS]
-PROMPTS = [
-    "Write the code for a simple python program that prints 'Hello, World!'",
-    "Write the code for a python program that implements a simple web server",
-    "Write the code for a python program that implements DFS",
-    "Write the code for a python program that implements BFS",
-    "Write the code for a python program that implements Dijkstra's algorithm",
-    "Write the code for a python program that implements a search algorithm",
-    "Write the code for a python program that implements a sorting algorithm",
-    "Write the code for a python program that implements a minimum spanning tree algorithm",
-    "Write the code for a python program that implements a maximum flow algorithm",
-    "Write the code for a python program that implements a shortest path algorithm",
-    "Write the code for a python program that implements a minimum spanning tree algorithm",
-    "Write the code for a python program that implements a maximum flow algorithm",
-    "Write the code for a python program that implements a shortest path algorithm",
-    
-    
-]
+PROMPTS = [encode_prompt(p) for p in PROMPTS]
 print(PROMPTS)
 print("Number of prompts: ", len(PROMPTS))
 
@@ -277,7 +261,7 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
 def paraphrase_overall(text: str) -> str:
     
     prompt = (
-            paraphrase_prompt
+            "Please paraphrase the following paragraph. Please do not change any semantics or style of the paragraph. Please change as few words as possible..\n"
         )
         
     try:
@@ -285,7 +269,7 @@ def paraphrase_overall(text: str) -> str:
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "You are an AI assistant who is an expert at following instructions."},
-                    {"role": "user", "content": prompt + "'"+text+"'"}
+                    {"role": "user", "content": text}
                 ],
                 temperature=1,
                 max_tokens=MAX_TOKENS
@@ -349,47 +333,36 @@ def main():
             crypto_scheme=CRYPTO_SCHEME,
             hash_scheme=HASH_SCHEME,kmeans_model_path=KMEANS_MODEL,window_size=window_size
         )
+    unwatermarked_results = batch_unencoder(
+            PROMPTS, model_name=MODEL, max_tokens=MAX_TOKENS, batch_size=BATCH_SIZE
+        )
     decoder = BatchWatermarkDecoder(actual_model, message=MESSAGES, dec_method=ENC_DEC_METHOD, model_name = MODEL, crypto_scheme=CRYPTO_SCHEME, hash_scheme=HASH_SCHEME, kmeans_model_path=KMEANS_MODEL,
         window_size=window_size)
     
-    paraphrased_results = []
-    watermarked_results_before = []
-    
-    skip_indices = []
 
-    for i in range(len(watermarked_results)):
-        #print("Original Text")
-        #print(watermarked_results[i]['generated_text'])
-        #print("Paraphrased Text")
-        if len(watermarked_results[i]['generated_text']) < MAX_TOKENS*0.5:
-            skip_indices.append(i)
-        paraphrased_results.append(paraphrase_overall(watermarked_results[i]['generated_text']))
-        watermarked_results_before.append(watermarked_results[i]['generated_text'])
-        #print(paraphrased_results[-1])
-    decoded_results_before = decoder.batch_decode(
+
+    decoded_results_wat = decoder.batch_decode(
         [r["prompt"] for r in watermarked_results],
-        watermarked_results_before,
+        [r["generated_text"] for r in watermarked_results],
         batch_size=BATCH_SIZE)  
-    decoded_results_after = decoder.batch_decode(
-        [r["prompt"] for r in watermarked_results],
-        paraphrased_results,
+    decoded_results_unwat = decoder.batch_decode(
+        [r["prompt"] for r in unwatermarked_results],
+        [r["generated_text"] for r in unwatermarked_results],
         batch_size=BATCH_SIZE)
-    for i in range(len(decoded_results_after)):
+    for i in range(len(decoded_results_wat)):
         avg_difference = 0
-        if i not in skip_indices:
-            print("Original Text: ")
-            print(" ")
-            print(watermarked_results[i]['generated_text'])
-            print("Length of original text: ", len(watermarked_results[i]['generated_text'].split(" ")))
-            print("Decoding Results: ")
-            avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_before, i, 'before', avg_before, avg_after)
-            watermarked_results[i]['generated_text'] = paraphrased_results[i]
-            print("Paraphrased Text: ")
-            print(" ")
-            print(paraphrased_results[i])
-            print("Decoding Results")
-            avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_after, i, 'after', avg_before, avg_after)
-            avg_difference = avg_difference + (avg_before - avg_after)
+        print("Original Text: ")
+        print(" ")
+        print(watermarked_results[i]['generated_text'])
+        print("Decoding Results: ")
+        avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_wat, i, 'before', avg_before, avg_after)
+        # watermarked_results[i]['generated_text'] = paraphrased_results[i]
+        print("Unwatermarked Text: ")
+        print(" ")
+        print(unwatermarked_results[i]['generated_text'])
+        print("Decoding Results")
+        avg_before, avg_after = watermarked_detected(unwatermarked_results, decoded_results_unwat, i, 'after', avg_before, avg_after)
+        avg_difference = avg_difference + (avg_before - avg_after)
         # print(avg_before, avg_after)
     print("Average precision before watermarking: ", avg_before/len(PROMPTS))
     print("Average precision after watermarking: ", avg_after/len(PROMPTS))

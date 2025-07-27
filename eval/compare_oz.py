@@ -11,8 +11,8 @@ from nltk.tokenize import sent_tokenize
 nltk.download('punkt')  # Download the punkt tokenizer data
 from transformers import AutoTokenizer
 from datasets import load_dataset
-from batch_main_vary_context_window import batch_encoder
-from batch_decoder_vary_context_window import BatchWatermarkDecoder
+from batch_main_vary_context_window_oz import batch_encoder
+from batch_decoder_vary_context_window import BatchWatermarkDecoder  
 from collections import defaultdict
 from datetime import datetime
 from ecc.mceliece import McEliece
@@ -37,20 +37,19 @@ class EncDecMethod(Enum):
     RANDOM = 'Random'
     NEXT = 'Next'
 
-MODEL_NAMES = ['gpt2', 'gpt2-medium',   "meta-llama/Llama-3.2-1B",'mistralai/Mistral-7B-v0.1', "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k", "meta-llama/Meta-Llama-3-8B", "meta-llama/Meta-Llama-3-8B-Instruct", "meta-llama/Llama-3.2-1B-Instruct"]
+MODEL_NAMES = ['gpt2', 'gpt2-medium',   "meta-llama/Llama-3.2-1B",'ministral/Ministral-3b-instruct', "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k", "meta-llama/Meta-Llama-3-8B", "meta-llama/Meta-Llama-3-8B-Instruct", "meta-llama/Llama-3.2-1B-Instruct"]
 
 #----------------USER INPUT VARIABLES BEGIN------------------
 print("Testing with kmeans clustering variation")
 
 BATCH_SIZE = 1
 CRYPTO_SCHEME = 'Ciphertext' # ['McEliece', 'Ciphertext']
-MAX_TOKENS = 300
+MAX_TOKENS = 100
 ENC_DEC_METHOD = EncDecMethod.STANDARD.value
 HASH_SCHEME = 'kmeans' # ['hashlib', 'kmeans']
-MODEL = MODEL_NAMES[3]
+MODEL = MODEL_NAMES[0]
 print('Model used was ', MODEL)
-paraphrase_prompt = "Please paraphrase the following paragraph by replacing the variables in the code with different variables. Return the paraphrased text only. \n"
-print('Paraphrase prompt used was: ', paraphrase_prompt)
+
 KMEANS_MODEL = "kmeans_model3.pkl"  # Path to the KMeans model file
 print('KMeans model used was: ', MODEL)
 window_size = 3
@@ -80,46 +79,34 @@ prompts = load_dataset()
 # Extract instructions from the Alpaca dataset, excluding those with input content
 PROMPTS = [p['instruction'] for p in prompts if( not p.get('input') or p['input'].strip() == '')]
 
-PROMPTS = PROMPTS[:25]
+PROMPTS = PROMPTS[:10]
 
+PROMPTS = [     
+        "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.",
+        "A train carriage containing controlled nuclear materials was stolen in Cincinnati today. Its whereabouts are unknown.",
+        "Miley Cyrus was caught shoplifting from Abercrombie and Fitch on Hollywood Boulevard today.",
+        "Legolas and Gimli advanced on the orcs, raising their weapons with a harrowing war cry.",
+        "For today's homework assignment, please describe the reasons for the US Civil War.",
+        "John F. Kennedy was just elected President of the United States after rising from the grave decades after his assassination. Due to miraculous developments in nanotechnology, Kennedy's brain was rebuilt from his remains and installed in the control center of a state-of-the art humanoid robot. Below is a transcript of his acceptance speech."
+    ]
 
 def encode_prompt(prompt):
-    return '''<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-
-    You are a helpful AI assistant who answers questions. <|eot_id|><|start_header_id|>user<|end_header_id|>''' + prompt + "<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
+    return "<|begin_of_text|><|start_header_id|>system<|end_header_id|> You are a helpful AI assistant who answers questions. <|eot_id|><|start_header_id|>user<|end_header_id|>"+ prompt + "<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
 
 
 # PROMPTS = [encode_prompt(p) for p in PROMPTS]
-PROMPTS = [
-    "Write the code for a simple python program that prints 'Hello, World!'",
-    "Write the code for a python program that implements a simple web server",
-    "Write the code for a python program that implements DFS",
-    "Write the code for a python program that implements BFS",
-    "Write the code for a python program that implements Dijkstra's algorithm",
-    "Write the code for a python program that implements a search algorithm",
-    "Write the code for a python program that implements a sorting algorithm",
-    "Write the code for a python program that implements a minimum spanning tree algorithm",
-    "Write the code for a python program that implements a maximum flow algorithm",
-    "Write the code for a python program that implements a shortest path algorithm",
-    "Write the code for a python program that implements a minimum spanning tree algorithm",
-    "Write the code for a python program that implements a maximum flow algorithm",
-    "Write the code for a python program that implements a shortest path algorithm",
-    
-    
-]
 print(PROMPTS)
 print("Number of prompts: ", len(PROMPTS))
 
 MESSAGES = [
-    'Asteroid',
+    "EXAMPLE PAYLOAD"*5,
 ] * len(PROMPTS)
     
 
-load_dotenv()
-openai.api_key_path = "openai_key.txt"
 
 
-def watermarked_detected(watermarked_results, decoded_results, i, when, avg_before, avg_after):
+
+def watermarked_detected(watermarked_results, decoded_results, i, when, avg_before):
         # print("GENERATED TEXT: ", watermarked_results[i]['generated_text'])
         encoded_bits, encoded_bit_indices, generated_text, sampled_tokens_en, token_sampled_probs_en, t_enc, probs_start_enc = watermarked_results[i]['encoded_bits'], watermarked_results[i]['encoded_indices'], watermarked_results[i]['generated_text'], watermarked_results[i]['sampled_tokens'], watermarked_results[i]['token_probs'], watermarked_results[i]['t_values'], watermarked_results[i]['prob_starts']
         extracted_bits, extracted_indices, sampled_tokens_dec, token_sampled_probs_dec, t_ext, probs_start_ext = decoded_results[i]['extracted_bits'], decoded_results[i]['extracted_indices'], decoded_results[i]['sampled_tokens'], decoded_results[i]['token_probs'], decoded_results[i]['threshold_values'], decoded_results[i]['prob_starts']
@@ -190,7 +177,7 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
             num_dec_bits += len(dec_arr)
         
         # print(matches, num_enc_bits, num_dec_bits)
-        print("Precision_send is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
+        # print("Precision_send is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
         # print(enc_idx_bit_map)
         # print(ext_idx_bit_map)
         #need to calcualte percision based on the decoded bits and the ground truth.
@@ -214,11 +201,8 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
                         matches += 1
                 
                 num_dec_bits += len(dec_arr)
-            print("Precision_watermarked is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
-            if when == 'before':
-                avg_before += matches/num_dec_bits if num_dec_bits != 0 else 0
-            else:
-                avg_after += matches/num_dec_bits if num_dec_bits != 0 else 0
+            print("Bits sent is ", matches)
+            avg_before += matches
             matches = 0
             num_enc_bits = 0
             num_dec_bits = 0
@@ -232,7 +216,7 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
                         matches += 1
                 
                 num_dec_bits += len(dec_arr)
-            print("Precision_watermarked_correct_hashing is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
+            # print("Precision_watermarked_correct_hashing is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
         else:
             # need to just check if the codeword decodes correctly.
             pass
@@ -271,74 +255,14 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
                 print(f"{i:<5} | {e_bit:<3} | {x_bit:<3} | {e_idx:<3} | {x_idx:<3} | "
                     f"{e_tok:<20} | {x_tok:<20} | {e_prob:<12} | {x_prob:<12.6f} | "
                     f"{e_start_prob:<14} | {x_start_prob:<14.6f} | {e_t:<8} | {x_t:<8.6f}")
-        return avg_before, avg_after
+        return avg_before
 
     
-def paraphrase_overall(text: str) -> str:
-    
-    prompt = (
-            paraphrase_prompt
-        )
-        
-    try:
-            response = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are an AI assistant who is an expert at following instructions."},
-                    {"role": "user", "content": prompt + "'"+text+"'"}
-                ],
-                temperature=1,
-                max_tokens=MAX_TOKENS
-            )
-            # time.sleep(1)  # Rate limit
-            paraphrased_text = response.choices[0].message.content
-    except Exception as e:
-            print(f"Error during paraphrasing text: {str(e)}")
-            
-    
-    return paraphrased_text
 
 
-def paraphrase_sentence(text: str) -> str:
-    """Split text into sentences, paraphrase each one with context, and rejoin."""
-    sentences = sent_tokenize(text)
-    paraphrased_sentences = []
-    
-    for i, sentence in enumerate(sentences):
-        context = " ".join(sentences[:i]) if i > 0 else ""
-        prompt = (
-            "Given some previous context and a sentence "
-            "following that context, paraphrase the "
-            "current sentence. Only return the "
-            "paraphrased sentence in your response. Do not add any other text to your response.\n"
-            f"Previous context: {context}\n"
-            f"Current sentence to paraphrase: {sentence}\n"
-            "Your paraphrase of the current sentence:"
-        )
-        
-        try:
-            response = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are an expert at paraphrasing sentences while maintaining their meaning and contextual relevance."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=MAX_TOKENS
-            )
-            # time.sleep(1)  # Rate limit
-            paraphrased = response.choices[0].message.content
-            paraphrased_sentences.append(paraphrased)
-        except Exception as e:
-            print(f"Error during paraphrasing sentence {i+1}: {str(e)}")
-            paraphrased_sentences.append(sentence)
-    
-    return " ".join(paraphrased_sentences)
 
 def main():
-    """Main function to run the paraphrase testing."""
     avg_before = 0 
-    avg_after = 0
     watermarked_results, actual_model = batch_encoder(
             PROMPTS,
             max_tokens=MAX_TOKENS,
@@ -361,41 +285,31 @@ def main():
         #print("Original Text")
         #print(watermarked_results[i]['generated_text'])
         #print("Paraphrased Text")
-        if len(watermarked_results[i]['generated_text']) < MAX_TOKENS*0.5:
-            skip_indices.append(i)
-        paraphrased_results.append(paraphrase_overall(watermarked_results[i]['generated_text']))
+        # paraphrased_results.append(paraphrase_overall(watermarked_results[i]['generated_text']))
         watermarked_results_before.append(watermarked_results[i]['generated_text'])
         #print(paraphrased_results[-1])
     decoded_results_before = decoder.batch_decode(
         [r["prompt"] for r in watermarked_results],
         watermarked_results_before,
         batch_size=BATCH_SIZE)  
-    decoded_results_after = decoder.batch_decode(
-        [r["prompt"] for r in watermarked_results],
-        paraphrased_results,
-        batch_size=BATCH_SIZE)
-    for i in range(len(decoded_results_after)):
+    # decoded_results_after = decoder.batch_decode(
+    #     [r["prompt"] for r in watermarked_results],
+    #     paraphrased_results,
+    #     batch_size=BATCH_SIZE)
+    for i in range(len(decoded_results_before)):
         avg_difference = 0
         if i not in skip_indices:
-            print("Original Text: ")
+            print("Generated Text: ")
             print(" ")
             print(watermarked_results[i]['generated_text'])
             print("Length of original text: ", len(watermarked_results[i]['generated_text'].split(" ")))
             print("Decoding Results: ")
-            avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_before, i, 'before', avg_before, avg_after)
-            watermarked_results[i]['generated_text'] = paraphrased_results[i]
-            print("Paraphrased Text: ")
-            print(" ")
-            print(paraphrased_results[i])
-            print("Decoding Results")
-            avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_after, i, 'after', avg_before, avg_after)
-            avg_difference = avg_difference + (avg_before - avg_after)
+            avg_before = watermarked_detected(watermarked_results, decoded_results_before, i, 'before', avg_before)
+            # watermarked_results[i]['generated_text'] = paraphrased_results[i]
         # print(avg_before, avg_after)
-    print("Average precision before watermarking: ", avg_before/len(PROMPTS))
-    print("Average precision after watermarking: ", avg_after/len(PROMPTS))
-    print("Percentage decrease in precision_watermarked: ", (avg_difference)/len(PROMPTS))
-def graph_precision_send(avg_befores, avg_afters):
-    pass
+    print("Average bits sent: ", avg_before/len(PROMPTS))
+
+
 if __name__ == "__main__":
 
     main()

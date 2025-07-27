@@ -121,7 +121,7 @@ def batch_encoder(prompts, model_name="gpt2", max_tokens=100, batch_size=4, top_
     device = "cuda" if torch.cuda.is_available() else "cpu"
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left")
     tokenizer.pad_token = tokenizer.eos_token  # GPT2 doesn't have pad token
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype="auto", trust_remote_code=True).to(device)
+    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
     model.eval()
 
     results = []

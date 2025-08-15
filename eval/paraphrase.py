@@ -9,7 +9,7 @@ from transformers import pipeline
 import nltk
 from nltk.tokenize import sent_tokenize
 nltk.download('punkt')  # Download the punkt tokenizer data
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from batch_main_vary_context_window import batch_encoder
 from batch_decoder_vary_context_window import BatchWatermarkDecoder
@@ -49,7 +49,7 @@ ENC_DEC_METHOD = EncDecMethod.STANDARD.value
 HASH_SCHEME = 'kmeans' # ['hashlib', 'kmeans']
 MODEL = MODEL_NAMES[3]
 print('Model used was ', MODEL)
-paraphrase_prompt = "Please paraphrase the following paragraph by replacing the variables in the code with different variables. Return the paraphrased text only. \n"
+paraphrase_prompt = "Given the following text, please paraphrase it by changing up to 10 percent of the words, making sure to keep the same meaning, style, tone, and context. Return the paraphrased text only. \n"
 print('Paraphrase prompt used was: ', paraphrase_prompt)
 KMEANS_MODEL = "kmeans_model3.pkl"  # Path to the KMeans model file
 print('KMeans model used was: ', MODEL)
@@ -85,28 +85,18 @@ PROMPTS = PROMPTS[:25]
 
 def encode_prompt(prompt):
     return '''<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-
     You are a helpful AI assistant who answers questions. <|eot_id|><|start_header_id|>user<|end_header_id|>''' + prompt + "<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
 
+model = AutoModelForCausalLM.from_pretrained(MODEL)
+tokenizer = AutoTokenizer.from_pretrained(MODEL)
 
-# PROMPTS = [encode_prompt(p) for p in PROMPTS]
-PROMPTS = [
-    "Write the code for a simple python program that prints 'Hello, World!'",
-    "Write the code for a python program that implements a simple web server",
-    "Write the code for a python program that implements DFS",
-    "Write the code for a python program that implements BFS",
-    "Write the code for a python program that implements Dijkstra's algorithm",
-    "Write the code for a python program that implements a search algorithm",
-    "Write the code for a python program that implements a sorting algorithm",
-    "Write the code for a python program that implements a minimum spanning tree algorithm",
-    "Write the code for a python program that implements a maximum flow algorithm",
-    "Write the code for a python program that implements a shortest path algorithm",
-    "Write the code for a python program that implements a minimum spanning tree algorithm",
-    "Write the code for a python program that implements a maximum flow algorithm",
-    "Write the code for a python program that implements a shortest path algorithm",
-    
-    
-]
+def encode_prompt_mistral(prompt):
+    device = "cuda" # the device to load the model onto
+
+    return tokenizer.apply_chat_template([{"role": "user", "content": prompt}], tokenize=False)
+
+
+# PROMPTS = [encode_prompt_mistral(p) for p in PROMPTS]
 print(PROMPTS)
 print("Number of prompts: ", len(PROMPTS))
 
@@ -197,7 +187,7 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
         ground_truth_bit_map = defaultdict(list)
         if CRYPTO_SCHEME == 'Ciphertext':
             ciphertext = Ciphertext()
-            ground_truth_ciphertext = ciphertext.encrypt(160)
+            ground_truth_ciphertext = ciphertext.encrypt(128)
             for i in range(len(ground_truth_ciphertext)):
                 ground_truth_bit_map[i].append(ground_truth_ciphertext[i])
             # print("Ground truth bit map", ground_truth_bit_map)
@@ -215,10 +205,6 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
                 
                 num_dec_bits += len(dec_arr)
             print("Precision_watermarked is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
-            if when == 'before':
-                avg_before += matches/num_dec_bits if num_dec_bits != 0 else 0
-            else:
-                avg_after += matches/num_dec_bits if num_dec_bits != 0 else 0
             matches = 0
             num_enc_bits = 0
             num_dec_bits = 0
@@ -233,6 +219,10 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
                 
                 num_dec_bits += len(dec_arr)
             print("Precision_watermarked_correct_hashing is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
+            if when == 'before':
+                avg_before += matches/num_dec_bits if num_dec_bits != 0 else 0
+            else:
+                avg_after += matches/num_dec_bits if num_dec_bits != 0 else 0
         else:
             # need to just check if the codeword decodes correctly.
             pass
@@ -389,11 +379,12 @@ def main():
             print(paraphrased_results[i])
             print("Decoding Results")
             avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_after, i, 'after', avg_before, avg_after)
+            print("Avg before and after", avg_before, avg_after)
             avg_difference = avg_difference + (avg_before - avg_after)
         # print(avg_before, avg_after)
-    print("Average precision before watermarking: ", avg_before/len(PROMPTS))
-    print("Average precision after watermarking: ", avg_after/len(PROMPTS))
-    print("Percentage decrease in precision_watermarked: ", (avg_difference)/len(PROMPTS))
+    print("Average precision before watermarking: ", avg_before/(len(PROMPTS)-len(skip_indices)))
+    print("Average precision after watermarking: ", avg_after/(len(PROMPTS)-len(skip_indices)))
+    print("Percentage decrease in precision_watermarked: ", (avg_difference)/(len(PROMPTS)-len(skip_indices)))
 def graph_precision_send(avg_befores, avg_afters):
     pass
 if __name__ == "__main__":

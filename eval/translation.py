@@ -180,7 +180,7 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
         # ground_truth_bit_map = defaultdict(list)
         # if CRYPTO_SCHEME == 'Ciphertext':
         #     ciphertext = Ciphertext()
-        #     ground_truth_ciphertext = ciphertext.encrypt(160)
+        #     ground_truth_ciphertext = ciphertext.encrypt(128)
         #     for i in range(len(ground_truth_ciphertext)):
         #         ground_truth_bit_map[i].append(ground_truth_ciphertext[i])
         #     # print("Ground truth bit map", ground_truth_bit_map)

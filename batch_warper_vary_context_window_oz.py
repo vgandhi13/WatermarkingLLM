@@ -92,7 +92,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
         elif crypto_scheme == 'Ciphertext':
             for message in batch_messages:
                 ciphertext = Ciphertext()
-                codeword = ciphertext.encrypt(160)
+                codeword = ciphertext.encrypt(128)
                 codewords.append(codeword)
         self.codewords = codewords
         
@@ -247,7 +247,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                             new_index = new_index % len(self.codewords[b])
                             if new_index == idx:
                                 print("Error: All bits were Encoded")
-                                exit()
+                                break
                     # if self.enc_method == 'Next' or self.enc_method == 'Standard':
                     self.bit[b] = self.codewords[b][new_index]
                     #random bit approach

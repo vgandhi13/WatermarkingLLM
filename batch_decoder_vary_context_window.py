@@ -89,7 +89,7 @@ class BatchWatermarkDecoder:
                     codeword = ''.join(format(byte, '08b') for byte in codeword)
                 elif self.crypto_scheme == 'Ciphertext':
                     ciphertext = Ciphertext()
-                    codeword = ciphertext.encrypt(160)
+                    codeword = ciphertext.encrypt(128)
                     self.encoded_bits = [c for c in codeword]
                     self.encoded_bit_indices = [i for i in range(len(self.encoded_bits))]
                 result = self.decode(batch_prompts[b], batch_texts[b], batch_inputs['input_ids'][b], batch_full_inputs[b], logits[b], codeword)
@@ -184,7 +184,7 @@ class BatchWatermarkDecoder:
                         new_index = new_index % len(codeword)
                         if new_index == idx:
                             print("Error: All bits were Decoded")
-                            exit()
+                            break
                     prev_decoded_indices.add(new_index)
                 index = new_index
 

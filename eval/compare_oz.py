@@ -45,7 +45,7 @@ print("Testing with kmeans clustering variation")
 BATCH_SIZE = 1
 CRYPTO_SCHEME = 'Ciphertext' # ['McEliece', 'Ciphertext']
 MAX_TOKENS = 100
-ENC_DEC_METHOD = EncDecMethod.STANDARD.value
+ENC_DEC_METHOD = EncDecMethod.NEXT.value
 HASH_SCHEME = 'kmeans' # ['hashlib', 'kmeans']
 MODEL = MODEL_NAMES[0]
 print('Model used was ', MODEL)
@@ -99,7 +99,7 @@ print(PROMPTS)
 print("Number of prompts: ", len(PROMPTS))
 
 MESSAGES = [
-    "EXAMPLE PAYLOAD"*5,
+    "Asteroid",
 ] * len(PROMPTS)
     
 
@@ -184,7 +184,7 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
         ground_truth_bit_map = defaultdict(list)
         if CRYPTO_SCHEME == 'Ciphertext':
             ciphertext = Ciphertext()
-            ground_truth_ciphertext = ciphertext.encrypt(160)
+            ground_truth_ciphertext = ciphertext.encrypt(128)
             for i in range(len(ground_truth_ciphertext)):
                 ground_truth_bit_map[i].append(ground_truth_ciphertext[i])
             # print("Ground truth bit map", ground_truth_bit_map)
@@ -192,30 +192,30 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
             num_enc_bits = 0
             num_dec_bits = 0
             # print(ext_idx_bit_map)
-            for i, dec_arr in ext_idx_bit_map.items(): #change the decoding
-                if i not in ground_truth_bit_map:
-                    continue
-                bit = ground_truth_bit_map[i]
-                for j in range(len(dec_arr)):
-                    if bit[0] == dec_arr[j]:
-                        matches += 1
+            # for i, dec_arr in ext_idx_bit_map.items(): #change the decoding
+            #     if i not in ground_truth_bit_map:
+            #         continue
+            #     bit = ground_truth_bit_map[i]
+            #     for j in range(len(dec_arr)):
+            #         if bit[0] == dec_arr[j]:
+            #             matches += 1
                 
-                num_dec_bits += len(dec_arr)
-            print("Bits sent is ", matches)
+            #     num_dec_bits += len(dec_arr)
+            # print("Bits sent is ", matches)
             avg_before += matches
             matches = 0
             num_enc_bits = 0
             num_dec_bits = 0
-            # print(ext_idx_bit_map)
-            for i, dec_arr in ext_idx_bit_map.items(): #change the decoding
-                if i not in enc_idx_bit_map:
+            # print(ground_truth_bit_map)
+            for i, bit in ground_truth_bit_map.items():
+                if i not in ext_idx_bit_map:
                     continue
-                bit = ground_truth_bit_map[i]
-                for j in range(len(dec_arr)):
-                    if bit[0] == dec_arr[j]:
-                        matches += 1
+                dec_arr = ext_idx_bit_map[i]
+                if bit[0] in dec_arr:
+                    matches += 1
                 
-                num_dec_bits += len(dec_arr)
+                
+            print("Bits correctly sent is ", matches)
             # print("Precision_watermarked_correct_hashing is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
         else:
             # need to just check if the codeword decodes correctly.

@@ -28,7 +28,10 @@ from unwatermarked_samp import batch_encoder as batch_unencoder
 GREEN = ""
 RED = ""
 RESET = ""
+<<<<<<< HEAD
 
+=======
+>>>>>>> b028057 (updated to remove secret)
 load_dotenv()
 login(token = os.getenv('HF_TOKEN'))
 

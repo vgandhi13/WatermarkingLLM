@@ -11,7 +11,7 @@ from sklearn.cluster import KMeans, MiniBatchKMeans
 
 nltk.download('punkt_tab')
 
-def process_data(window_size=5):
+def process_data(window_size=3):
     # Define the file path
     file_path = "openwebtext_2017_18_1e5"
 
@@ -69,7 +69,7 @@ def process_data(window_size=5):
     return window_embeddings
 
 
-def train_kmeans(embeddings, n_clusters=[160, 250, 540, 1020, 2040]): # take 2040 for clusters and then mod the index during sampling
+def train_kmeans(embeddings, n_clusters=[2040]):#[160, 250, 540, 1020, 2040]): # take 2040 for clusters and then mod the index during sampling
     ############################################################################
     """
     Train KMeans clustering on the given embeddings.
@@ -93,7 +93,7 @@ def train_kmeans(embeddings, n_clusters=[160, 250, 540, 1020, 2040]): # take 204
         print("Training KMeans with n_clusters = ", n_cluster)
         sys.stdout.flush()
         kmeans.append(MiniBatchKMeans(n_clusters=n_cluster, random_state=42, batch_size=1000, verbose=3, max_iter = 1))
-        kmeans[-1].fit(X)
+        kmeans[-1].fit(X) 
         end = time.time()
         print("KMeans training completed in {:.2f} seconds".format(end - start))
         sys.stdout.flush()
@@ -104,6 +104,7 @@ def train_kmeans(embeddings, n_clusters=[160, 250, 540, 1020, 2040]): # take 204
 if __name__ == "__main__":
     embeddings = process_data()
     kmeans_models = train_kmeans(embeddings)
+    
 
     for i, kmeans_model in enumerate(kmeans_models):
         print(f"KMeans model trained with {kmeans_model.n_clusters} clusters.")

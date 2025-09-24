@@ -1,12 +1,46 @@
 # seed = aes(key=key, ctr=ctr)
 # ciphertext = prg(seed, length = length)
 import os 
+import sys
+import random
+# Add the reed-muller-python directory to the Python path
+sys.path.append(os.path.join(os.path.dirname(__file__), 'reed-muller-python'))
+
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.ciphers.algorithms import ChaCha20
+# Import the McEliece with Reed-Muller implementation
+sys.path.append(os.path.dirname(__file__))
+from mceliece_reed_muller import McElieceReedMuller
 
 def bytes_to_bits(byte_data):
     """Convert bytes to a string of bits."""
-    return ''.join(format(byte, '08b') for byte in byte_data)
+    if isinstance(byte_data, bytes):
+        return ''.join(format(byte, '08b') for byte in byte_data)
+    else:
+        # Handle other types by converting to bytes first
+        try:
+            if isinstance(byte_data, str):
+                byte_data = byte_data.encode('utf-8')
+            elif isinstance(byte_data, list):
+                # Convert list of bits to bytes
+                bitstring = ''.join(str(bit) for bit in byte_data)
+                byte_data = bytearray()
+                for i in range(0, len(bitstring), 8):
+                    byte_str = bitstring[i:i+8]
+                    if len(byte_str) == 8:
+                        byte_val = int(byte_str, 2)
+                        byte_data.append(byte_val)
+                    else:
+                        # Pad with zeros if incomplete byte
+                        byte_str = byte_str.ljust(8, '0')
+                        byte_val = int(byte_str, 2)
+                        byte_data.append(byte_val)
+                byte_data = bytes(byte_data)
+            
+            return ''.join(format(byte, '08b') for byte in byte_data)
+        except Exception as e:
+            print(f"Error converting to bits: {e}")
+            return None
 
 def prg(seed, length):
     """
@@ -15,7 +49,7 @@ def prg(seed, length):
     length: desired output length in bits
     """
     # ChaCha20 needs a 32-byte key, so we'll double our 16-byte seed
-    chacha_key = seed + seed  # Simple way to expand from 16 to 32 bytes
+    chacha_key = seed + seed
     nonce = b'\x00' * 16
     
     # Create ChaCha20 cipher
@@ -37,59 +71,257 @@ embedding_modes = ["normal", "encrypt", "prompt_correlated"]
 mode = embedding_modes[0]
 KEY = b'=\x0fs\xf1q\xccQ\x9fhi\xa7\x89\x8f\xc5#\xbf'
 
-
-
 class Ciphertext:
     def __init__(self):
-        if mode=="normal":
-            self.ctr = 0
-            self.key = KEY # AES-128 key
-        else:
-            raise ValueError("Not implemented yet lol")
+        # Initialize McEliece with Reed-Muller (RM(1,7))
+        self.mceliece = McElieceReedMuller(r=1, m=7)
+        print(f"McEliece RM(1,7) initialized:")
+        print(f"  Message length (k): {self.mceliece.k} bits")
+        print(f"  Code length (n): {self.mceliece.n} bits")
+        print(f"  Error correction capability (t): {self.mceliece.t}")
 
-    def get_key(self):
-        """Return the 128-bit AES key as a bytes object."""
-        return self.key
-
-    def aes_block(self, counter):
-        """Generate one AES block from counter."""
-        cipher = Cipher(algorithms.AES(self.key), modes.ECB())
-        encryptor = cipher.encryptor()
-        # Convert counter to 16 bytes
-        counter_bytes = counter.to_bytes(16, byteorder='big')
-        block_bytes = encryptor.update(counter_bytes) + encryptor.finalize()
-        # Convert to bits - AES block is always 128 bits
-        return bytes_to_bits(block_bytes)
-
-    def encrypt(self, length, message=None):
-        self.ctr += 1
-        if mode=="normal":
-            # Generate seed using AES in counter mode - returns 128 bits
-            seed_bits = self.aes_block(self.ctr)
-            # Convert bits back to bytes for PRG
-            seed_bytes = int(seed_bits, 2).to_bytes(16, byteorder='big')
-            # Use PRG to expand the seed to desired length
-            return prg(seed_bytes, length)
+    def encrypt(self, message):
+        """
+        Encrypt a message using McEliece with Reed-Muller codes.
+        
+        Args:
+            message: String message to encrypt
+            
+        Returns:
+            str: Binary string representation of the encrypted ciphertext
+        """
+        try:
+            # Convert string message to bytes
+            if isinstance(message, str):
+                message_bytes = message.encode('utf-8')
+            else:
+                message_bytes = message
+            
+            # Check if message is too long
+            if len(message_bytes) * 8 > self.mceliece.k:
+                print(f"Warning: Message too long ({len(message_bytes)} bytes, {len(message_bytes) * 8} bits). Max is {self.mceliece.k} bits.")
+                # Truncate message if too long
+                max_bytes = self.mceliece.k // 8
+                message_bytes = message_bytes[:max_bytes]
+            
+            # Encrypt using McEliece (returns tuple: (ciphertext, num_errors))
+            encrypted_result = self.mceliece.encrypt(message_bytes)
+            
+            # Extract just the ciphertext from the tuple
+            if isinstance(encrypted_result, tuple):
+                encrypted_bytes = encrypted_result[0]
+            else:
+                encrypted_bytes = encrypted_result
+            
+            # Convert encrypted bytes to binary string
+            binary_string = bytes_to_bits(encrypted_bytes)
+            
+            return binary_string
+            
+        except Exception as e:
+            print(f"Encryption error: {e}")
+            return None
         
     def decrypt(self, ciphertext):
-        pass
-        #only needed when mode == "encrypt")
+        """
+        Decrypt a ciphertext using McEliece with Reed-Muller codes.
+        
+        Args:
+            ciphertext: Binary string or list of bits representing the ciphertext
+            
+        Returns:
+            str: Decrypted message
+        """
+        try:
+            # Convert string ciphertext to bytes if needed
+            if isinstance(ciphertext, str):
+                # Convert binary string to bytes
+                ciphertext_bytes = bytearray()
+                for i in range(0, len(ciphertext), 8):
+                    byte_str = ciphertext[i:i+8]
+                    if len(byte_str) == 8:
+                        byte_val = int(byte_str, 2)
+                        ciphertext_bytes.append(byte_val)
+                    else:
+                        # Pad with zeros if incomplete byte
+                        byte_str = byte_str.ljust(8, '0')
+                        byte_val = int(byte_str, 2)
+                        ciphertext_bytes.append(byte_val)
+                ciphertext_bytes = bytes(ciphertext_bytes)
+            else:
+                # Assume it's already bytes
+                ciphertext_bytes = ciphertext
+            
+            # Ensure the ciphertext length matches the expected length
+            expected_bytes = self.mceliece.n // 8
+            if len(ciphertext_bytes) != expected_bytes:
+                print(f"Warning: ciphertext length {len(ciphertext_bytes)} bytes doesn't match expected length {expected_bytes} bytes")
+                # Pad or truncate to match expected length
+                if len(ciphertext_bytes) < expected_bytes:
+                    ciphertext_bytes = ciphertext_bytes + b'\x00' * (expected_bytes - len(ciphertext_bytes))
+                else:
+                    ciphertext_bytes = ciphertext_bytes[:expected_bytes]
+            
+            # Decrypt using McEliece
+            decrypted_bytes = self.mceliece.decrypt(ciphertext_bytes)
+            
+            if decrypted_bytes is None:
+                print("Decryption failed - unable to decode")
+                return None
+            
+            # Convert decrypted bytes to string
+            try:
+                decrypted_text = decrypted_bytes.decode('utf-8')
+                # Remove null characters and other non-printable characters
+                decrypted_text = ''.join(char for char in decrypted_text if char.isprintable())
+                return decrypted_text
+            except UnicodeDecodeError:
+                print("Warning: Could not decode as UTF-8, returning raw bytes")
+                return str(decrypted_bytes)
+                
+        except Exception as e:
+            print(f"Decryption error: {e}")
+            return None
+
+class Mceliece:
+    def __init__(self):
+        # Initialize McEliece with Reed-Muller (RM(1,7))
+        self.mceliece = McElieceReedMuller(r=1, m=7)
+        print(f"McEliece RM(1,7) initialized:")
+        print(f"  Message length (k): {self.mceliece.k} bits")
+        print(f"  Code length (n): {self.mceliece.n} bits")
+        print(f"  Error correction capability (t): {self.mceliece.t}")
+    
+    def encrypt(self, message):
+        """
+        Encrypt a message using McEliece with Reed-Muller codes.
+        
+        Args:
+            message: Message to encrypt (string, bytes, or list of bits)
+            
+        Returns:
+            bytes: Encrypted ciphertext
+        """
+        try:
+            # Convert message to bytes if it's a string
+            if isinstance(message, str):
+                message_bytes = message.encode('utf-8')
+            elif isinstance(message, list):
+                # Convert list of bits to bytes
+                bitstring = ''.join(str(bit) for bit in message)
+                message_bytes = bytearray()
+                for i in range(0, len(bitstring), 8):
+                    byte_str = bitstring[i:i+8]
+                    if len(byte_str) == 8:
+                        byte_val = int(byte_str, 2)
+                        message_bytes.append(byte_val)
+                    else:
+                        # Pad with zeros if incomplete byte
+                        byte_str = byte_str.ljust(8, '0')
+                        byte_val = int(byte_str, 2)
+                        message_bytes.append(byte_val)
+                message_bytes = bytes(message_bytes)
+            else:
+                message_bytes = message
+            
+            # Check if message is too long
+            if len(message_bytes) * 8 > self.mceliece.k:
+                print(f"Warning: Message too long ({len(message_bytes)} bytes, {len(message_bytes) * 8} bits). Max is {self.mceliece.k} bits.")
+                # Truncate message if too long
+                max_bytes = self.mceliece.k // 8
+                message_bytes = message_bytes[:max_bytes]
+            
+            # Encrypt using McEliece (returns tuple: (ciphertext, num_errors))
+            encrypted_result = self.mceliece.encrypt(message_bytes)
+            
+            # Extract just the ciphertext from the tuple
+            if isinstance(encrypted_result, tuple):
+                return encrypted_result[0]
+            else:
+                return encrypted_result
+            
+        except Exception as e:
+            print(f"Encryption error: {e}")
+            return None
+    
+    def decrypt(self, ciphertext):
+        """
+        Decrypt a ciphertext using McEliece with Reed-Muller codes.
+        
+        Args:
+            ciphertext: Ciphertext to decrypt (bytes or list of bits)
+            
+        Returns:
+            bytes: Decrypted message
+        """
+        try:
+            # Convert list of bits to bytes if needed
+            if isinstance(ciphertext, list):
+                bitstring = ''.join(str(bit) for bit in ciphertext)
+                ciphertext_bytes = bytearray()
+                for i in range(0, len(bitstring), 8):
+                    byte_str = bitstring[i:i+8]
+                    if len(byte_str) == 8:
+                        byte_val = int(byte_str, 2)
+                        ciphertext_bytes.append(byte_val)
+                    else:
+                        # Pad with zeros if incomplete byte
+                        byte_str = byte_str.ljust(8, '0')
+                        byte_val = int(byte_str, 2)
+                        ciphertext_bytes.append(byte_val)
+                ciphertext_bytes = bytes(ciphertext_bytes)
+            else:
+                ciphertext_bytes = ciphertext
+            
+            # Ensure the ciphertext length matches the expected length
+            expected_bytes = self.mceliece.n // 8
+            if len(ciphertext_bytes) != expected_bytes:
+                print(f"Warning: ciphertext length {len(ciphertext_bytes)} bytes doesn't match expected length {expected_bytes} bytes")
+                # Pad or truncate to match expected length
+                if len(ciphertext_bytes) < expected_bytes:
+                    ciphertext_bytes = ciphertext_bytes + b'\x00' * (expected_bytes - len(ciphertext_bytes))
+                else:
+                    ciphertext_bytes = ciphertext_bytes[:expected_bytes]
+            
+            # Decrypt using McEliece
+            return self.mceliece.decrypt(ciphertext_bytes)
+            
+        except Exception as e:
+            print(f"Decryption error: {e}")
+            return None
 
 if __name__ == "__main__":
-    ciphertext = Ciphertext()
-    print(ciphertext.encrypt(100))
-    print(ciphertext.encrypt(100))
-    print("avg 0s and 1s")
+    print("Testing McEliece with Reed-Muller implementation")
+    print("="*60)
     
-    for i in range(1, 200):
-        total_0, total_1 = 0, 0
-        print(ciphertext.encrypt(i))
-        for j in range(len(ciphertext.encrypt(i))):
-            if ciphertext.encrypt(i)[j] == '0':
-                total_0 += 1
-            else:
-                total_1 += 1
-        if total_0/len(ciphertext.encrypt(i)) < 0.51 and total_0/len(ciphertext.encrypt(i)) > 0.49:
-            print(i)
-            print(f"Average 0s: {total_0/len(ciphertext.encrypt(i))}, Average 1s: {total_1/len(ciphertext.encrypt(i))}")
+    # Test the Ciphertext class
+    print("\n1. Testing Ciphertext class:")
+    ciphertext = Ciphertext()
+    
+    test_message = "H"
+    print(f"\nEncrypting: '{test_message}'")
+    encrypted = ciphertext.encrypt(test_message)
+    print(f"Encrypted (binary): {encrypted}")
+    print(f"Encrypted length: {len(encrypted)} bits")
+    
+    print(f"\nDecrypting...")
+    decrypted = ciphertext.decrypt(encrypted)
+    print(f"Decrypted: '{decrypted}'")
+    
+    # Test the Mceliece class
+    print("\n2. Testing Mceliece class:")
+    mceliece = Mceliece()
+    
+    test_message = "H"
+    print(f"\nEncrypting: '{test_message}'")
+    encrypted_bytes = mceliece.encrypt(test_message)
+    print(f"Encrypted (bytes): {encrypted_bytes}")
+    print(f"Encrypted length: {len(encrypted_bytes)} bytes")
+    
+    print(f"\nDecrypting...")
+    decrypted_bytes = mceliece.decrypt(encrypted_bytes)
+    print(f"Decrypted (bytes): {decrypted_bytes}")
+    if decrypted_bytes:
+        decrypted_text = decrypted_bytes.decode('utf-8')
+        print(f"Decrypted (text): '{decrypted_text}'")
 

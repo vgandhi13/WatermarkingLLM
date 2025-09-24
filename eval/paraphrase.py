@@ -13,6 +13,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from batch_main_vary_context_window import batch_encoder
 from batch_decoder_vary_context_window import BatchWatermarkDecoder
+from unwatermarked_samp import batch_encoder as batch_unencoder
 from collections import defaultdict
 from datetime import datetime
 from ecc.mceliece import McEliece
@@ -23,7 +24,9 @@ import json
 import numpy as np
 from enum import Enum
 import datasets
-import matplotlib.pyplot as plt
+from sklearn.metrics import precision_score, recall_score, confusion_matrix, classification_report
+from collections import Counter
+import random
 GREEN = "\033[92m"
 RED = "\033[91m"
 RESET = "\033[0m"
@@ -49,7 +52,7 @@ ENC_DEC_METHOD = EncDecMethod.STANDARD.value
 HASH_SCHEME = 'kmeans' # ['hashlib', 'kmeans']
 MODEL = MODEL_NAMES[3]
 print('Model used was ', MODEL)
-paraphrase_prompt = "Given the following text, please paraphrase it by changing up to 10 percent of the words, making sure to keep the same meaning, style, tone, and context. Return the paraphrased text only. \n"
+paraphrase_prompt = "Given the following text, please paraphrase it by changing up to 40 percent of the words, making sure to keep the same meaning, style, tone, and context. Return the paraphrased text only. \n"
 print('Paraphrase prompt used was: ', paraphrase_prompt)
 KMEANS_MODEL = "kmeans_model3.pkl"  # Path to the KMeans model file
 print('KMeans model used was: ', MODEL)
@@ -80,7 +83,7 @@ prompts = load_dataset()
 # Extract instructions from the Alpaca dataset, excluding those with input content
 PROMPTS = [p['instruction'] for p in prompts if( not p.get('input') or p['input'].strip() == '')]
 
-PROMPTS = PROMPTS[:25]
+PROMPTS = PROMPTS[:3]
 
 
 def encode_prompt(prompt):
@@ -109,17 +112,20 @@ load_dotenv()
 openai.api_key_path = "openai_key.txt"
 
 
-def watermarked_detected(watermarked_results, decoded_results, i, when, avg_before, avg_after):
+def watermarked_detected(watermarked_results, decoded_results, i, when, avg_before, avg_after, total_guesses_before, total_guesses_after):
+        # print(f"DEBUG: Entering watermarked_detected for sample {i}, when={when}")
         # print("GENERATED TEXT: ", watermarked_results[i]['generated_text'])
         encoded_bits, encoded_bit_indices, generated_text, sampled_tokens_en, token_sampled_probs_en, t_enc, probs_start_enc = watermarked_results[i]['encoded_bits'], watermarked_results[i]['encoded_indices'], watermarked_results[i]['generated_text'], watermarked_results[i]['sampled_tokens'], watermarked_results[i]['token_probs'], watermarked_results[i]['t_values'], watermarked_results[i]['prob_starts']
         extracted_bits, extracted_indices, sampled_tokens_dec, token_sampled_probs_dec, t_ext, probs_start_ext = decoded_results[i]['extracted_bits'], decoded_results[i]['extracted_indices'], decoded_results[i]['sampled_tokens'], decoded_results[i]['token_probs'], decoded_results[i]['threshold_values'], decoded_results[i]['prob_starts']
         
-        
+        # print(f"DEBUG: Extracted data for sample {i}")
 
         bits_match = encoded_bits == extracted_bits
         indices_match = encoded_bit_indices == extracted_indices
         tokens_match = sampled_tokens_en == sampled_tokens_dec
         probs_match = token_sampled_probs_en == token_sampled_probs_dec
+
+        # print(f"DEBUG: Basic comparisons done for sample {i}")
 
         # print(f"Encoded bits match extracted bits: {GREEN if bits_match else RED}{bits_match}{RESET}")
         # print(f"Encoded bit indices match extracted indices: {GREEN if indices_match else RED}{indices_match}{RESET}")
@@ -138,6 +144,7 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
         enc_idx_bit_map = defaultdict(list)
         ext_idx_bit_map = defaultdict(list)
 
+        # print(f"DEBUG: Creating bit maps for sample {i}")
 
         for i in range(len(encoded_bits)):
             if encoded_bits[i]  != '?':
@@ -146,6 +153,8 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
         for i in range(len(extracted_bits)):
             if extracted_bits[i] != '?':
                 ext_idx_bit_map[extracted_indices[i]].append(extracted_bits[i])
+        
+        # print(f"DEBUG: Bit maps created for sample {i}")
         
         # print("Encoded index and their bits", enc_idx_bit_map)
         # print("Decoded index and their bits", ext_idx_bit_map)
@@ -165,6 +174,7 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
         num_enc_bits = 0
         num_dec_bits = 0
 
+        # print(f"DEBUG: Starting precision calculations for sample {i}")
 
         for i, enc_arr in enc_idx_bit_map.items(): #change the decoding
             if i not in ext_idx_bit_map:
@@ -179,18 +189,34 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
             num_enc_bits += len(enc_arr)
             num_dec_bits += len(dec_arr)
         
+        # print(f"DEBUG: Basic precision calculation done for sample {i}")
+        
         # print(matches, num_enc_bits, num_dec_bits)
-        print("Precision_send is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
+        # print("Precision_send is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
         # print(enc_idx_bit_map)
         # print(ext_idx_bit_map)
         #need to calcualte percision based on the decoded bits and the ground truth.
         ground_truth_bit_map = defaultdict(list)
+        precision_watermarked = 0
         if CRYPTO_SCHEME == 'Ciphertext':
+            # print(f"DEBUG: Starting Ciphertext calculations for sample {i}")
             ciphertext = Ciphertext()
-            ground_truth_ciphertext = ciphertext.encrypt(128)
+            ground_truth_ciphertext = ciphertext.encrypt('Asteroid')
             for i in range(len(ground_truth_ciphertext)):
                 ground_truth_bit_map[i].append(ground_truth_ciphertext[i])
             # print("Ground truth bit map", ground_truth_bit_map)
+            codeword = [0]*128
+            for i in range(len(codeword)):
+                codeword[i] = random.randint(0, 1)
+            for i, ext_arr in ext_idx_bit_map.items():
+                counts = Counter(ext_arr)
+                most_common_element = counts.most_common(1)[0][0]
+                codeword[i] = most_common_element
+                
+            print(codeword)
+            print("Decoded codeword: ", ciphertext.decrypt("".join(str(bit) for bit in codeword)))
+            if ciphertext.decrypt("".join(str(bit) for bit in codeword)) == 'A':
+                print("Codeword decoded correctly")
             matches = 0
             num_enc_bits = 0
             num_dec_bits = 0
@@ -204,7 +230,8 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
                         matches += 1
                 
                 num_dec_bits += len(dec_arr)
-            print("Precision_watermarked is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
+            precision_watermarked = matches/num_dec_bits if num_dec_bits != 0 else 0
+            print("Precision_watermarked is ", precision_watermarked)
             matches = 0
             num_enc_bits = 0
             num_dec_bits = 0
@@ -218,50 +245,18 @@ def watermarked_detected(watermarked_results, decoded_results, i, when, avg_befo
                         matches += 1
                 
                 num_dec_bits += len(dec_arr)
-            print("Precision_watermarked_correct_hashing is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
+            # print("Precision_watermarked_correct_hashing is ", matches/num_dec_bits if num_dec_bits != 0 else 0)
             if when == 'before':
-                avg_before += matches/num_dec_bits if num_dec_bits != 0 else 0
+                avg_before += precision_watermarked
+                total_guesses_before.append(precision_watermarked)
             else:
-                avg_after += matches/num_dec_bits if num_dec_bits != 0 else 0
+                avg_after += precision_watermarked
+                total_guesses_after.append(precision_watermarked)
         else:
             # need to just check if the codeword decodes correctly.
             pass
-        if not (bits_match and indices_match and tokens_match and probs_match):
-            print("\n⚠️ Mismatch Detected! Side-by-Side Comparison Table:\n")
-            print(f"{'Idx':<5} | {'EBit':<3} | {'ExBit':<3} | {'EIdx':<3} | {'ExIdx':<3} | "
-                f"{'Encoded Token':<20} | {'Extracted Token':<20} | "
-                f"{'Encoded Prob':<12} | {'Extracted Prob':<12} | "
-                f"{'Enc Start Prob':<14} | {'Ext Start Prob':<14} | "
-                f"{'Enc T':<8} | {'Ext T':<8}")
-            print("-" * 150)
-
-            min_len = min(len(encoded_bits), len(extracted_bits), len(encoded_bit_indices), len(extracted_indices), 
-                        len(sampled_tokens_en), len(sampled_tokens_dec), len(token_sampled_probs_en), len(token_sampled_probs_dec))
-
-            for i in range(min_len):
-                e_bit = encoded_bits[i] if i < len(encoded_bits) else "N/A"
-                x_bit = extracted_bits[i] if i < len(extracted_bits) else "N/A"
-                e_idx = encoded_bit_indices[i] if i < len(encoded_bit_indices) else "N/A"
-                x_idx = extracted_indices[i] if i < len(extracted_indices) else "N/A"
-                e_tok = sampled_tokens_en[i] if i < len(sampled_tokens_en) else "N/A"
-                x_tok = sampled_tokens_dec[i] if i < len(sampled_tokens_dec) else "N/A"
-                e_prob = token_sampled_probs_en[i] if i < len(token_sampled_probs_en) else "N/A"
-                x_prob = token_sampled_probs_dec[i] if i < len(token_sampled_probs_dec) else "N/A"
-                e_start_prob = probs_start_enc[i] if i < len(probs_start_enc) else "N/A"
-                x_start_prob = probs_start_ext[i] if i < len(probs_start_ext) else "N/A"
-                e_t = t_enc[i] if i < len(t_enc) else "N/A"
-                x_t = t_ext[i] if i < len(t_ext) else "N/A"
-
-                # Highlight mismatches
-                e_bit = f"{RED}{e_bit}{RESET}" if e_bit != x_bit else e_bit
-                e_idx = f"{RED}{e_idx}{RESET}" if e_idx != x_idx else e_idx
-                e_tok = f"{RED}{e_tok}{RESET}" if e_tok != x_tok else e_tok
-                e_prob = f"{RED}{e_prob:.6f}{RESET}" if e_prob != x_prob else f"{e_prob:.6f}"
-
-                print(f"{i:<5} | {e_bit:<3} | {x_bit:<3} | {e_idx:<3} | {x_idx:<3} | "
-                    f"{e_tok:<20} | {x_tok:<20} | {e_prob:<12} | {x_prob:<12.6f} | "
-                    f"{e_start_prob:<14} | {x_start_prob:<14.6f} | {e_t:<8} | {x_t:<8.6f}")
-        return avg_before, avg_after
+        # print(f"DEBUG: About to return from watermarked_detected for sample {i}")
+        return avg_before, avg_after, precision_watermarked, total_guesses_before, total_guesses_after
 
     
 def paraphrase_overall(text: str) -> str:
@@ -270,8 +265,7 @@ def paraphrase_overall(text: str) -> str:
             paraphrase_prompt
         )
         
-    try:
-            response = openai.ChatCompletion.create(
+    response = openai.ChatCompletion.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "You are an AI assistant who is an expert at following instructions."},
@@ -281,11 +275,7 @@ def paraphrase_overall(text: str) -> str:
                 max_tokens=MAX_TOKENS
             )
             # time.sleep(1)  # Rate limit
-            paraphrased_text = response.choices[0].message.content
-    except Exception as e:
-            print(f"Error during paraphrasing text: {str(e)}")
-            
-    
+    paraphrased_text = response.choices[0].message.content
     return paraphrased_text
 
 
@@ -306,8 +296,7 @@ def paraphrase_sentence(text: str) -> str:
             "Your paraphrase of the current sentence:"
         )
         
-        try:
-            response = openai.ChatCompletion.create(
+        response = openai.ChatCompletion.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "You are an expert at paraphrasing sentences while maintaining their meaning and contextual relevance."},
@@ -316,14 +305,65 @@ def paraphrase_sentence(text: str) -> str:
                 temperature=0.7,
                 max_tokens=MAX_TOKENS
             )
-            # time.sleep(1)  # Rate limit
-            paraphrased = response.choices[0].message.content
-            paraphrased_sentences.append(paraphrased)
-        except Exception as e:
-            print(f"Error during paraphrasing sentence {i+1}: {str(e)}")
-            paraphrased_sentences.append(sentence)
+        paraphrased = response.choices[0].message.content
+        paraphrased_sentences.append(paraphrased)
     
     return " ".join(paraphrased_sentences)
+
+def calculate_metrics(y_true, y_pred):
+    """Calculate classification metrics using scikit-learn functions."""
+    # Calculate precision and recall
+    precision = precision_score(y_true, y_pred, zero_division=0)
+    recall = recall_score(y_true, y_pred, zero_division=0)
+    
+    # Calculate confusion matrix with explicit labels to ensure correct shape
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    
+    # Extract values from confusion matrix
+    tn, fp, fn, tp = cm.ravel()
+    
+    # Calculate additional metrics
+    tpr = tp / (tp + fn) if (tp + fn) > 0 else 0  # True Positive Rate (same as recall)
+    tnr = tn / (tn + fp) if (tn + fp) > 0 else 0  # True Negative Rate
+    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0  # False Positive Rate
+    fnr = fn / (fn + tp) if (fn + tp) > 0 else 0  # False Negative Rate
+    
+    return {
+        'precision': precision,
+        'recall': recall,
+        'tpr': tpr,
+        'tnr': tnr,
+        'fpr': fpr,
+        'fnr': fnr,
+        'tp': tp,
+        'tn': tn,
+        'fp': fp,
+        'fn': fn
+    }
+
+def calculate_non_watermarked_precision(decoded_results, i):
+    """Calculate precision for non-watermarked texts without requiring encoded_bits."""
+    try:
+        extracted_bits = decoded_results[i]['extracted_bits']
+        extracted_indices = decoded_results[i]['extracted_indices']
+        
+        # For non-watermarked texts, we expect very few or no extracted bits
+        # The precision should be very low since there shouldn't be any watermark
+        if len(extracted_bits) == 0:
+            return 0.0
+        
+        # Count how many bits were "detected" (should be very few for non-watermarked)
+        detected_bits = sum(1 for bit in extracted_bits if bit != '?')
+        total_possible_bits = len(extracted_bits)
+        
+        # Precision is the ratio of detected bits to total possible bits
+        # For non-watermarked texts, this should be very low
+        precision = detected_bits / total_possible_bits if total_possible_bits > 0 else 0.0
+        
+        return precision
+    except Exception as e:
+        print(f"Error calculating non-watermarked precision for sample {i}: {e}")
+        return 0.0
 
 def main():
     """Main function to run the paraphrase testing."""
@@ -343,7 +383,7 @@ def main():
         window_size=window_size)
     
     paraphrased_results = []
-    watermarked_results_before = []
+    original_watermarked_texts = []  # Same watermarked text, not paraphrased
     
     skip_indices = []
 
@@ -351,20 +391,29 @@ def main():
         #print("Original Text")
         #print(watermarked_results[i]['generated_text'])
         #print("Paraphrased Text")
-        if len(watermarked_results[i]['generated_text']) < MAX_TOKENS*0.5:
+        text_length = len(watermarked_results[i]['generated_text'])
+        if text_length < MAX_TOKENS*0.5:
             skip_indices.append(i)
         paraphrased_results.append(paraphrase_overall(watermarked_results[i]['generated_text']))
-        watermarked_results_before.append(watermarked_results[i]['generated_text'])
+        original_watermarked_texts.append(watermarked_results[i]['generated_text'])  # Keep original text as-is
         #print(paraphrased_results[-1])
-    decoded_results_before = decoder.batch_decode(
+    
+    # Decode the original watermarked text (not paraphrased)
+    decoded_results_original = decoder.batch_decode(
         [r["prompt"] for r in watermarked_results],
-        watermarked_results_before,
+        original_watermarked_texts,
         batch_size=BATCH_SIZE)  
-    decoded_results_after = decoder.batch_decode(
+    # Decode the paraphrased watermarked text
+    decoded_results_paraphrased = decoder.batch_decode(
         [r["prompt"] for r in watermarked_results],
         paraphrased_results,
         batch_size=BATCH_SIZE)
-    for i in range(len(decoded_results_after)):
+    
+    
+    total_guesses_before = []
+    total_guesses_after = []
+    # Reset for detailed output
+    for i in range(len(decoded_results_paraphrased)):
         avg_difference = 0
         if i not in skip_indices:
             print("Original Text: ")
@@ -372,19 +421,20 @@ def main():
             print(watermarked_results[i]['generated_text'])
             print("Length of original text: ", len(watermarked_results[i]['generated_text'].split(" ")))
             print("Decoding Results: ")
-            avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_before, i, 'before', avg_before, avg_after)
+            avg_before, avg_after, precision_watermarked, total_guesses_before, total_guesses_after = watermarked_detected(watermarked_results, decoded_results_original, i, 'before', avg_before, avg_after, total_guesses_before, total_guesses_after)
             watermarked_results[i]['generated_text'] = paraphrased_results[i]
             print("Paraphrased Text: ")
             print(" ")
             print(paraphrased_results[i])
             print("Decoding Results")
-            avg_before, avg_after = watermarked_detected(watermarked_results, decoded_results_after, i, 'after', avg_before, avg_after)
-            print("Avg before and after", avg_before, avg_after)
+            avg_before, avg_after, precision_watermarked, total_guesses_before, total_guesses_after = watermarked_detected(watermarked_results, decoded_results_paraphrased, i, 'after', avg_before, avg_after, total_guesses_before, total_guesses_after)
             avg_difference = avg_difference + (avg_before - avg_after)
         # print(avg_before, avg_after)
     print("Average precision before watermarking: ", avg_before/(len(PROMPTS)-len(skip_indices)))
     print("Average precision after watermarking: ", avg_after/(len(PROMPTS)-len(skip_indices)))
     print("Percentage decrease in precision_watermarked: ", (avg_difference)/(len(PROMPTS)-len(skip_indices)))
+    print("Total guesses before: ", total_guesses_before)
+    print("Total guesses after: ", total_guesses_after)
 def graph_precision_send(avg_befores, avg_afters):
     pass
 if __name__ == "__main__":

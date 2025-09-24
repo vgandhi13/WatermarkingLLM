@@ -28,7 +28,9 @@ from unwatermarked_samp import batch_encoder as batch_unencoder
 GREEN = ""
 RED = ""
 RESET = ""
-login(token = os.getenv("HF_TOKEN"))
+
+load_dotenv()
+login(token = os.getenv('HF_TOKEN'))
 
 class EncDecMethod(Enum):
     STANDARD = 'Standard'
@@ -331,7 +333,7 @@ def generate_unwatermarked_text():
             #codeword = '100110'
         elif CRYPTO_SCHEME == 'Ciphertext':
             ciphertext = Ciphertext()
-            codeword = ciphertext.encrypt(100)
+            codeword = ciphertext.encrypt('Asteroid')
 
         encoded_bits = [c for c in codeword]
         encoded_bit_indices = [i for i in range(len(encoded_bits))]

@@ -285,7 +285,7 @@ def generate_unwatermarked_text(actual_model_fr):
             #codeword = '100110'
         elif CRYPTO_SCHEME == 'Ciphertext':
             ciphertext = Ciphertext()
-            codeword = ciphertext.encrypt(100)
+            codeword = ciphertext.encrypt('Asteroid')
         encoded_bits = [c for c in codeword]
         encoded_bit_indices = [i for i in range(len(encoded_bits))]
 

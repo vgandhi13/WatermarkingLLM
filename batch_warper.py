@@ -84,7 +84,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
         elif crypto_scheme == 'Ciphertext':
             for message in batch_messages:
                 ciphertext = Ciphertext()
-                codeword = ciphertext.encrypt(128)
+                codeword = ciphertext.encrypt('Asteroid')
                 codewords.append(codeword)
         self.codewords = codewords
         

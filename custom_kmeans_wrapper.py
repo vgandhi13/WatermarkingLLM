@@ -38,7 +38,7 @@ class SimpleKMeansWrapper:
     
         # Get both instructions and outputs
         corpus = []
-        for conversation in dataset['train']['conversations'][:10]:
+        for conversation in dataset['train']['conversations'][:100]:
             conversation_text = conversation[1]['value'] #get the gpt response part
             corpus.append(conversation_text)
         
@@ -104,7 +104,7 @@ class SimpleKMeansWrapper:
         for ind in self.mapping:
             if cluster in self.mapping[ind]:
                 result = ind
-                break
+            print(ind, len(self.mapping[ind]))
         
         return result 
     

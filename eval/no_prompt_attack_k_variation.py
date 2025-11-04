@@ -15,11 +15,12 @@ from huggingface_hub import login
 from sklearn.metrics import precision_recall_curve, precision_score, recall_score, PrecisionRecallDisplay, average_precision_score
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import List, Dict
+from dotenv import load_dotenv
+from datasets import load_dataset
 
 from batch_main_vary_context_window import batch_encoder
 from batch_decoder_vary_context_window import BatchWatermarkDecoder
-from ecc.ciphertext import Ciphertext
-from ecc.mceliece import McEliece
+from ecc.ciphertext import McEliece
 from unwatermarked_samp import batch_encoder as batch_unencoder
 
 # GREEN = "\033[92m"
@@ -28,10 +29,6 @@ from unwatermarked_samp import batch_encoder as batch_unencoder
 GREEN = ""
 RED = ""
 RESET = ""
-<<<<<<< HEAD
-
-=======
->>>>>>> b028057 (updated to remove secret)
 load_dotenv()
 login(token = os.getenv('HF_TOKEN'))
 
@@ -40,38 +37,30 @@ class EncDecMethod(Enum):
     RANDOM = 'Random'
     NEXT = 'Next'
 
-MODEL_NAMES = ['gpt2', 'gpt2-medium', "meta-llama/Llama-3.2-1B", 'ministral/Ministral-3b-instruct', "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k", "meta-llama/Meta-Llama-3-8B"]
+MODEL_NAMES = ['gpt2', 'gpt2-medium', "meta-llama/Llama-3.2-1B", 'mistralai/Mistral-7B-v0.1', "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k", "meta-llama/Meta-Llama-3-8B"]
 
 #----------------USER INPUT VARIABLES BEGIN------------------
-BATCH_SIZE = 2
+BATCH_SIZE = 1
 CRYPTO_SCHEME = 'Ciphertext' # ['McEliece', 'Ciphertext']
-MAX_TOKENS = 200
+MAX_TOKENS = 100
 ENC_DEC_METHOD = EncDecMethod.STANDARD.value
-MODEL = MODEL_NAMES[0]
-KMEANS_MODEL = "kmeans_model_160.pkl"  # Path to the KMeans model file
+MODEL = MODEL_NAMES[3]
+KMEANS_MODEL = "kmeans_model3.pkl"  # Path to the KMeans model file
 print('Model used was ', MODEL)
-window_size = 5
+window_size = 3
 
 def load_alpaca_dataset():
     """Load Alpaca evaluation set with outputs"""
-    alpaca_dataset = datasets.load_dataset("tatsu-lab/alpaca_eval", trust_remote_code=True)
+
+    alpaca_dataset = load_dataset("reciprocate/alpaca-eval", trust_remote_code=True, split='train')
     # Get both instructions and outputs
-    prompts_and_outputs = [
-        {
-            'prompt': instruction,
-            'expected_output': output
-        }
-        for instruction, output in zip(
-            alpaca_dataset['eval']['instruction'],
-            alpaca_dataset['eval']['output']
-        )
-    ]
-    return prompts_and_outputs
+    prompts = [x['prompt'] for x in alpaca_dataset]
+    return prompts
 
 alpaca_prompts = load_alpaca_dataset()
-PROMPTS = [x['prompt'] for x in alpaca_prompts]
+PROMPTS = alpaca_prompts
 
-# PROMPTS = PROMPTS[:100]
+PROMPTS = PROMPTS[:2]
 # print(len(PROMPTS))
 
 MESSAGES = [
@@ -82,14 +71,10 @@ HASH_SCHEME = 'kmeans' # ['hashlib', 'kmeans']
 
 #First entry of each batch table will be printed
 #----------------USER INPUT VARIABLES END------------------
-watermarked_predictions =  []
 actual_model_fr = None
 
-def generate_watermarked_text():
-    global watermarked_texts, watermarked_recalls
-    watermarked_texts = []
-    watermarked_recalls = []
-    
+
+def generate_watermarked_text(watermarked_predictions, watermarked_recalls):
     print("Starting watermarking process...")
     results, actual_model = batch_encoder(
         PROMPTS,
@@ -124,11 +109,12 @@ def generate_watermarked_text():
     print(f"Decoded {len(decoded_results)} texts")
 
     for i in range(0, len(results), BATCH_SIZE):
-        watermarked_texts.append(results[i]['generated_text'])
+        # watermarked_texts.append(results[i]['generated_text'])
 
         encoded_bits, encoded_bit_indices, generated_text, sampled_tokens_en, token_sampled_probs_en, t_enc, probs_start_enc = results[i]['encoded_bits'], results[i]['encoded_indices'], results[i]['generated_text'], results[i]['sampled_tokens'], results[i]['token_probs'], results[i]['t_values'], results[i]['prob_starts']
         extracted_bits, extracted_indices, sampled_tokens_dec, token_sampled_probs_dec, t_ext, probs_start_ext = decoded_results[i]['extracted_bits'], decoded_results[i]['extracted_indices'], decoded_results[i]['sampled_tokens'], decoded_results[i]['token_probs'], decoded_results[i]['threshold_values'], decoded_results[i]['prob_starts']
-        
+        print("Expected codeword: ", results[i]['codeword'][0])
+        expected_codeword = results[i]['codeword'][0]
         print(f"\nProcessing batch {i//BATCH_SIZE + 1}:")
         print(f"Number of encoded bits: {len(encoded_bits)}")
         print(f"Number of extracted bits: {len(extracted_bits)}")
@@ -177,21 +163,20 @@ def generate_watermarked_text():
         print('Indices were bits decoded dont match bits encoded', bit_not_same)
 
         matches = 0
-        num_enc_bits = 0
-        num_dec_bits = 0
+        num_enc_bits = sum(len(v) for v in enc_idx_bit_map.values())
+        num_dec_bits = sum(len(v) for v in ext_idx_bit_map.values())
 
-        for idx, enc_arr in enc_idx_bit_map.items():
-            if idx not in ext_idx_bit_map:
-                # ques - why do we not add len(enc_arr)?
-                continue
-            dec_arr = ext_idx_bit_map[idx]
-            for j in range(len(enc_arr)):
-                if j >= len(dec_arr):
-                    break
-                if enc_arr[j] == dec_arr[j]:
+        # ground truth bit map
+        ground_truth_bit_map = defaultdict(list)
+        for j in range(len(str(expected_codeword))):
+            ground_truth_bit_map[j].append(str(expected_codeword)[j])
+        print("Ground truth bit map", ground_truth_bit_map)
+
+        for idx, dec_arr in ext_idx_bit_map.items():
+            for j in range(len(dec_arr)):
+                if dec_arr[j] == ground_truth_bit_map[idx][0]:
                     matches += 1
-            num_enc_bits += len(enc_arr)
-            num_dec_bits += len(dec_arr)
+
         
         print(f"Matches: {matches}, Encoded bits: {num_enc_bits}, Decoded bits: {num_dec_bits}")
         precision = matches / num_dec_bits if num_dec_bits > 0 else 0
@@ -241,42 +226,13 @@ def generate_watermarked_text():
 
             print("\n" + "-" * 150 + "\n")
         
-    return actual_model   
+    return actual_model, expected_codeword, watermarked_predictions, watermarked_recalls 
 
 
-def calculate_metrics(y_true, y_pred):
-    tp = sum(1 for t, p in zip(y_true, y_pred) if t == 1 and p == 1)
-    tn = sum(1 for t, p in zip(y_true, y_pred) if t == 0 and p == 0)
-    fp = sum(1 for t, p in zip(y_true, y_pred) if t == 0 and p == 1)
-    fn = sum(1 for t, p in zip(y_true, y_pred) if t == 1 and p == 0)
-    
-    tpr = tp / (tp + fn) if (tp + fn) > 0 else 0  # recall
-    tnr = tn / (tn + fp) if (tn + fp) > 0 else 0
-    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
-    fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0  # same as tpr
 
-    all_predictions = watermarked_predictions + unwatermarked_predictions
-    all_ground_truth = [1] * len(watermarked_predictions) + [0] * len(unwatermarked_predictions)
-    ap = average_precision_score(all_ground_truth, all_predictions)
-    
-    return {
-        'precision': precision,
-        'recall': recall,
-        'tpr': tpr,
-        'tnr': tnr,
-        'fpr': fpr,
-        'fnr': fnr,
-        'ap': ap
-    }
 
-unwatermarked_predictions =  []
-def generate_unwatermarked_text():
-    global unwatermarked_texts, unwatermarked_recalls
-    unwatermarked_texts = []
-    unwatermarked_recalls = []
-    
+
+def generate_unwatermarked_text(expected_codeword, unwatermarked_predictions, unwatermarked_recalls):
     results = batch_unencoder(
         PROMPTS,
         max_tokens=MAX_TOKENS,
@@ -305,7 +261,7 @@ def generate_unwatermarked_text():
         )
 
     for i in range(0, len(results), BATCH_SIZE):
-        unwatermarked_texts.append(results[i]['generated_text'])
+        # unwatermarked_texts.append(results[i]['generated_text'])
 
         encoded_bits, encoded_bit_indices, generated_text, sampled_tokens_en, token_sampled_probs_en, t_enc, probs_start_enc = [], [], results[i]['generated_text'], [], [], [], []
         extracted_bits, extracted_indices, sampled_tokens_dec, token_sampled_probs_dec, t_ext, probs_start_ext = decoded_results[i]['extracted_bits'], decoded_results[i]['extracted_indices'], decoded_results[i]['sampled_tokens'], decoded_results[i]['token_probs'], decoded_results[i]['threshold_values'], decoded_results[i]['prob_starts']   
@@ -330,14 +286,8 @@ def generate_unwatermarked_text():
         enc_idx_bit_map = defaultdict(list)
         ext_idx_bit_map = defaultdict(list)
 
-        if CRYPTO_SCHEME == 'McEliece':
-            codeword = McEliece().encrypt(MESSAGES[0].encode('utf-8'))[0]
-            codeword = ''.join(format(byte, '08b') for byte in codeword)
-            #codeword = '100110'
-        elif CRYPTO_SCHEME == 'Ciphertext':
-            ciphertext = Ciphertext()
-            codeword = ciphertext.encrypt('Asteroid')
-
+        mceliece = McEliece()
+        codeword = mceliece.encrypt(''.join([f'{byte:08b}' for byte in MESSAGES[0].encode('utf-8')]))
         encoded_bits = [c for c in codeword]
         encoded_bit_indices = [i for i in range(len(encoded_bits))]
 
@@ -350,22 +300,23 @@ def generate_unwatermarked_text():
                 ext_idx_bit_map[extracted_indices[i]].append(extracted_bits[i])
 
         matches = 0
-        num_enc_bits = 0
-        num_dec_bits = 0
+        num_enc_bits = sum(len(v) for v in enc_idx_bit_map.values())
+        num_dec_bits = sum(len(v) for v in ext_idx_bit_map.values())
 
-        for i, enc_arr in enc_idx_bit_map.items():
-            if i not in ext_idx_bit_map:
-                continue
-            dec_arr = ext_idx_bit_map[i]
-            for j in range(len(enc_arr)):
-                if j >= len(dec_arr):
-                    break
-                if enc_arr[j] == dec_arr[j]:
+        # ground truth bit map
+        ground_truth_bit_map = defaultdict(list)
+        for j in range(len(str(expected_codeword))):
+            ground_truth_bit_map[j].append(str(expected_codeword)[j])
+        print("Ground truth bit map", ground_truth_bit_map)
+
+        print("Decoded index and their bits", ext_idx_bit_map)
+        for idx, dec_arr in ext_idx_bit_map.items():
+            for j in range(len(dec_arr)):
+                if dec_arr[j] == ground_truth_bit_map[idx][0]:
                     matches += 1
-            num_enc_bits += len(enc_arr)
-            num_dec_bits += len(dec_arr)
+
         
-        print(matches, num_enc_bits, num_dec_bits)
+        print(f"Matches: {matches}, Encoded bits: {num_enc_bits}, Decoded bits: {num_dec_bits}")
         unwatermarked_predictions.append((matches/num_dec_bits if num_dec_bits>0 else 0))
         print("Unwatermarked predictions", unwatermarked_predictions)
         unwatermarked_recalls.append((matches/num_enc_bits if num_enc_bits>0 else 0))
@@ -410,6 +361,7 @@ def generate_unwatermarked_text():
                     f"{e_start_prob:<14} | {x_start_prob:<14.6f} | {e_t:<8} | {x_t:<8.6f}")
 
             print("\n" + "-" * 150 + "\n")
+    return unwatermarked_predictions, unwatermarked_recalls
 
 
 def run_experiment(crypto_scheme, enc_method, kmeans_model_path):
@@ -422,40 +374,20 @@ def run_experiment(crypto_scheme, enc_method, kmeans_model_path):
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     
-    # Create CSV file for outputs
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_filename = f'no_prompt_attack_{kmeans_model_path}_{crypto_scheme}_{enc_method}_{timestamp}.csv'
+
+    watermarked_predictions, watermarked_recalls = [], []
+    unwatermarked_predictions, unwatermarked_recalls = [], []
+    actual_model_fr, expected_codeword, watermarked_predictions, watermarked_recalls = generate_watermarked_text(watermarked_predictions, watermarked_recalls)
+    unwatermarked_predictions, unwatermarked_recalls = generate_unwatermarked_text(expected_codeword, unwatermarked_predictions, unwatermarked_recalls)
     
-    with open(csv_filename, 'w', newline='') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        # Write header
-        csvwriter.writerow(['Type', 'Text', 'Precision', 'Recall'])
-            
-    actual_model_fr = generate_watermarked_text()
-    generate_unwatermarked_text()
-    
-    # Save watermarked texts
-    with open(csv_filename, 'a', newline='') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        for i, (text, precision) in enumerate(zip(watermarked_texts, watermarked_predictions)):
-            csvwriter.writerow(['Watermarked', text, precision, watermarked_recalls[i] if i < len(watermarked_recalls) else 'N/A'])
-    
-    # Save unwatermarked texts
-    with open(csv_filename, 'a', newline='') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        for i, (text, precision) in enumerate(zip(unwatermarked_texts, unwatermarked_predictions)):
-            csvwriter.writerow(['Unwatermarked', text, precision, unwatermarked_recalls[i] if i < len(unwatermarked_recalls) else 'N/A'])
     
     print("Watermarked predictions: ", watermarked_predictions)
     print("Unwatermarked predictions: ", unwatermarked_predictions)
 
     all_predictions = watermarked_predictions + unwatermarked_predictions
     all_ground_truth = [1] * len(watermarked_predictions) + [0] * len(unwatermarked_predictions)
-    
-    # Check if we have any predictions
-    if not all_predictions or not all_ground_truth:
-        print(f"No predictions generated for {crypto_scheme} - {enc_method}")
-        return [0], [0], {'precision': 0, 'recall': 0, 'tpr': 0, 'tnr': 0, 'fpr': 0, 'fnr': 0}
+    print("All predictions: ", all_predictions)
+    print("All ground truth: ", all_ground_truth)
     
     # Get precision, recall, thresholds
     precision, recall, thresholds = precision_recall_curve(all_ground_truth, all_predictions, pos_label=1)
@@ -480,24 +412,21 @@ def run_experiment(crypto_scheme, enc_method, kmeans_model_path):
     binary_predictions = [1 if p >= best_threshold else 0 for p in all_predictions]
     print("Binary predictions: ", binary_predictions)
     print("Ground truth: ", all_ground_truth)
-    metrics = calculate_metrics(all_ground_truth, binary_predictions)
 
-    print(f"\nResults have been saved to {csv_filename}")
-    return precision, recall, metrics
+
+    return precision, recall, watermarked_predictions, unwatermarked_predictions
 
 def main():
     # Define configurations
     configs = [
         ('McEliece', EncDecMethod.STANDARD.value),          
-        ('McEliece', EncDecMethod.RANDOM.value),
-        ('McEliece', EncDecMethod.NEXT.value),
-        ('Ciphertext', EncDecMethod.STANDARD.value),
-        ('Ciphertext', EncDecMethod.RANDOM.value)
+        ('McEliece', EncDecMethod.RANDOM.value)
     ]
     
     # Colors for different configurations
-    colors = ['blue', 'red', 'green', 'purple', 'orange', 'brown']
+    colors = ['blue', 'red']
     kmeans_model_paths = ['kmeans_model_160_n5.pkl', 'kmeans_model_250_n5.pkl', 'kmeans_model_540_n5.pkl', 'kmeans_model_1020_n5.pkl', 'kmeans_model_2040_n5.pkl']
+    kmeans_model_paths = ['kmeans_model_1020_n5.pkl']
     
     # Plot setup
     plt.figure(figsize=(10, 8))
@@ -506,17 +435,14 @@ def main():
     for kmeans_model_path in kmeans_model_paths:
         for (crypto_scheme, enc_method), color in zip(configs, colors):
             print(f"\nRunning experiment with {crypto_scheme} and {enc_method} encoding and kmeans model {kmeans_model_path}...")
-            precision, recall, metrics = run_experiment(crypto_scheme, enc_method, kmeans_model_path)
+            watermarked_predictions = []
+            unwatermarked_predictions = []
+            precision, recall, watermarked_predictions, unwatermarked_predictions = run_experiment(crypto_scheme, enc_method, kmeans_model_path)
                 
             # Only plot if we have real data (not just [0])
             if len(precision) > 1 and len(recall) > 1:
                 plt.plot(recall, precision, color=color, linewidth=2,
-                    label=f'{crypto_scheme} - {enc_method}\n'
-                    f'Precision: {metrics["precision"]:.4f}\n'
-                    f'Recall: {metrics["recall"]:.4f}\n'
-                    f'TPR: {metrics["tpr"]:.4f}\n'
-                    f'FPR: {metrics["fpr"]:.4f}\n'
-                    f'AP: {metrics["ap"]:.2f})')
+                    label=f'{crypto_scheme} - {enc_method}\n')
             else:
                 print(f"Skipping plot for {crypto_scheme} - {enc_method} - {kmeans_model_path} due to lack of data.")
         

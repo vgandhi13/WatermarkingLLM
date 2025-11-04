@@ -80,7 +80,7 @@ def test_glove_hash():
     
     # Fit clusters on a sample of 3-grams
     hasher.fit_clusters(similar_3grams + different_3grams)
-    
+     
     print("Similar 3-grams hash values:")
     for gram in similar_3grams:
         print(f"{gram}: {hasher.hash_3gram(gram)}")

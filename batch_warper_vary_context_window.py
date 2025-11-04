@@ -3,17 +3,17 @@ import math
 from transformers import AutoTokenizer
 from typing import Callable, Iterable, List, Optional, Tuple, Union
 import hashlib
-
+import pickle
+from ecc.ciphertext import McEliece
 import numpy as np
 import torch
+from ecc.random_linear_code import RandomLinearCode
 import random
-from ecc.mceliece import McEliece
-from ecc.ciphertext import Ciphertext
-# Uncomment if you're using McEliece for your actual implementation
-# from ecc.mceliece import McEliece
+# Using Ciphertext class which implements OAEP-McEliece
 import nltk
 nltk.download('punkt_tab')
 from nltk.tokenize import word_tokenize
+from custom_kmeans_wrapper import SimpleKMeansWrapper
 
 
 class LogitsProcessor:
@@ -28,6 +28,54 @@ class BatchTopPLogitsWarper(LogitsProcessor):
     """
     Batch-aware version of TopPLogitsWarper that can process multiple sequences simultaneously.
     """
+
+    def _decode_tokens_with_spacing(self, token_ids):
+        """
+        Decode individual tokens while preserving spacing information.
+        This is important for SentencePiece tokenizers like Mistral that don't
+        include spaces when decoding individual tokens.
+        
+        Strategy: Decode consecutive pairs of tokens and extract the difference
+        to infer what each token contributes, including spaces.
+        
+        Args:
+            token_ids: List or tensor of token IDs
+            
+        Returns:
+            List of decoded token strings with proper spacing inferred
+        """
+        if len(token_ids) == 0:
+            return []
+        
+        # Convert to list if tensor
+        if isinstance(token_ids, torch.Tensor):
+            token_ids = token_ids.tolist()
+        
+        if len(token_ids) == 1:
+            return [self.tokenizer.decode([token_ids[0]], skip_special_tokens=False)]
+        
+        decoded_tokens = []
+        
+        # Decode first token alone
+        prev_decoded = self.tokenizer.decode([token_ids[0]], skip_special_tokens=False)
+        decoded_tokens.append(prev_decoded)
+        
+        # For each subsequent token, decode it with the previous one and extract the difference
+        for i in range(1, len(token_ids)):
+            # Decode pair [prev, current]
+            pair_decoded = self.tokenizer.decode(token_ids[i-1:i+1], skip_special_tokens=False)
+            
+            # Extract what the new token added (this includes any spaces)
+            if pair_decoded.startswith(prev_decoded):
+                new_token_text = pair_decoded[len(prev_decoded):]
+            else:
+                # Fallback: if prefix doesn't match, decode individually
+                new_token_text = self.tokenizer.decode([token_ids[i]], skip_special_tokens=False)
+            
+            decoded_tokens.append(new_token_text)
+            prev_decoded = pair_decoded  # Update for next iteration
+        
+        return decoded_tokens
 
     def __init__(self, batch_encoded_bits,
             batch_encoded_indices, 
@@ -76,26 +124,34 @@ class BatchTopPLogitsWarper(LogitsProcessor):
         self.bit = []
         self.t = []
         self.prev_generated_tokens = []
-        self.last_twenty_tokens = []
         self.prev_encoded_indices = []
         
-        # For demo purposes, using a simple codeword
+
         # In production, you would use:
         codewords = []
+        if crypto_scheme == 'RANDOM':
+            for message in batch_messages:
+                randomLinearCode = RandomLinearCode(n=128, k=20, seed=42)
+                codeword = randomLinearCode.encode(message)
+                codewords.append([codeword, randomLinearCode])
         if crypto_scheme == 'McEliece':
             for message in batch_messages:
-                codeword = McEliece().encrypt(message.encode('utf-8'))[0]
-                E = ''.join(format(byte, '08b') for byte in codeword)
-                codewords.append("codeword: " + E)
-                # print(E)
-                # codewords.append('100110')
+                mceliece = McEliece()
+                codeword = mceliece.encrypt(''.join([f'{byte:08b}' for byte in message.encode('utf-8')]))      
+                codewords.append([codeword, mceliece])
+
         elif crypto_scheme == 'Ciphertext':
             for message in batch_messages:
-                ciphertext = Ciphertext()
-                codeword = ciphertext.encrypt('Asteroid')
-                codewords.append(codeword)
+                mceliece = McEliece()
+                codeword = mceliece.encrypt(''.join([f'{byte:08b}' for byte in message.encode('utf-8')]))             
+                codewords.append([codeword, mceliece])
         self.codewords = codewords
         
+        with open('saved_wrapper_kmeans_2040_n3.pkl', 'rb') as f:
+            mapping = pickle.load(f)
+        self.loaded_wrapper = SimpleKMeansWrapper.__new__(SimpleKMeansWrapper)
+        self.loaded_wrapper.mapping = mapping
+        self.loaded_wrapper.codeword_length = 128
         
         # Initialize state for each sequence in the batch
         for b in range(batch_size):
@@ -108,18 +164,11 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 prev_tokens = prev_tokens[-self.window_size:]
                 
                 # Hash the context to get the bit index
-                idx = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.codewords[b])
+                idx = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.codewords[b][0])
             elif hash_scheme == 'kmeans':
-                # Decode current input_ids tokens for this batch index
-                tokens = [self.tokenizer.decode(token.item()) for token in input_ids[b]]
-                
-                # Update last_twenty_tokens by extending the token list
-                self.last_twenty_tokens.append(tokens)
-                if len(self.last_twenty_tokens[b]) > 20:
-                    self.last_twenty_tokens[b] = self.last_twenty_tokens[b][-20:]
-                
-                # Merge all tokens into one string
-                merged_string = ''.join(self.last_twenty_tokens[b])
+                # Decode the entire sequence at once to preserve proper spacing
+                # This is important for SentencePiece tokenizers like Mistral
+                merged_string = self.tokenizer.decode(input_ids[b], skip_special_tokens=True)
                 
                 # Find the last complete word boundary (last space)
                 last_space_idx = merged_string.rfind(' ')
@@ -129,26 +178,38 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 else:
                     merged_string = ''  # No spaces found, so treat as empty (no complete words)
                 
+                # Debug: print what we're tokenizing
+                # print(f'Debug merged_string: {repr(merged_string)}')
+                
                 # Tokenize into words
                 words = word_tokenize(merged_string)
+                # print(f'Debug words after tokenize: {words}')
                 
                 # Get last self.window_size words (pad with periods if needed)
                 prev_tokens = ['.'] * (self.window_size - len(words)) + words[-self.window_size:]
                 
                 # print('Encoder last self.window_size words constructor: ', prev_tokens)
-
+                # print('Prev tokens:', prev_tokens)
                 embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
                 avg_embedding = sum(embeddings) / len(embeddings)
                 # Reshape to (1, -1) since predict expects a 2D array
-                avg_embedding = avg_embedding.reshape(1, -1)
-                idx = self.kmeans_model.predict(avg_embedding)[0]  % len(self.codewords[b])
+                avg_embedding = np.array(avg_embedding).reshape(1, -1)
+                # idx = self.kmeans_model.predict(avg_embedding)[0] % len(self.codewords[b][0])
+                # print('Avg embedding:', avg_embedding)
+                idx = self.loaded_wrapper.predict(avg_embedding)
+                print('Index:', idx)
+                # print('Wanted to encode index:', idx)
             # Append the last self.window_size words for this batch index
             self.prev_generated_tokens.append(prev_tokens)
             self.prev_encoded_indices.append(set([idx]))
             self.index.append(idx)
+            # print('Encoder index kmeans:', idx)
             
             # Get the bit to encode
-            self.bit.append(self.codewords[b][idx])
+            # print(self.codewords[b][0])
+            # print(self.codewords[b][0][0])
+            print('Bit to encode:', self.codewords[b][0][idx])
+            self.bit.append(self.codewords[b][0][idx])
             
             # Initialize other state variables
             self.questionmark_token.append(None)
@@ -178,22 +239,9 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                         self.prev_generated_tokens[b] = self.prev_generated_tokens[b][1:]
                     self.prev_generated_tokens[b].append(self.tokenizer.decode(sampled_token.item()))
                 elif self.hash_scheme == 'kmeans':
-                        
-                    # Get the token that was sampled in the previous step
-                    sampled_token = input_ids[b, -1]
-
-                    # Decode the token
-                    decoded_token = self.tokenizer.decode(sampled_token.item())
-
-                    # Update last_twenty_tokens[b] with the new token
-                    self.last_twenty_tokens[b].append(decoded_token)
-
-                    # Cap last_twenty_tokens[b] to the last 20 tokens
-                    if len(self.last_twenty_tokens[b]) > 20:
-                        self.last_twenty_tokens[b] = self.last_twenty_tokens[b][-20:]
-
-                    # Merge tokens into a single string
-                    merged_string = ''.join(self.last_twenty_tokens[b])
+                    # Decode the entire sequence at once to preserve proper spacing
+                    # This is important for SentencePiece tokenizers like Mistral
+                    merged_string = self.tokenizer.decode(input_ids[b], skip_special_tokens=True)
 
                     # Find the last complete word boundary (last space)
                     last_space_idx = merged_string.rfind(' ')
@@ -203,11 +251,15 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                     else:
                         merged_string = ''  # No spaces found, so treat as empty (no complete words)
 
+                    # Debug: print what we're tokenizing
+                    # print(f'Debug merged_string in call: {repr(merged_string)}')
+                    
                     # Tokenize into words
                     words = word_tokenize(merged_string)
-
+                    # print(f'Debug words after tokenize in call: {words}')
                     # Get last self.window_size words (pad with periods if needed)
                     prev_tokens = ['.'] * (self.window_size - len(words)) + words[-self.window_size:]
+                    # print('Prevprev tokens:', prev_tokens)
 
                     # Update prev_generated_tokens[b] with the new context
                     self.prev_generated_tokens[b] = prev_tokens
@@ -217,7 +269,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 # Initial token tracking (will be updated if it's a question mark token)
                 qm = ''
                 self.encoded_bits [b].append(self.bit[b])
-                self.encoded_bit_indices [b].append(self.index[b])
+                self.encoded_bit_indices[b].append(self.index[b])
                 self.t_enc [b].append(self.t[b])
                 
                 # Check if this was a question mark token (partially encoded bit)
@@ -230,16 +282,21 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                         self.questionmark_token_higher_prob[b] - self.questionmark_token_lower_prob[b])
                 else:
                     if self.hash_scheme == 'hashlib':
-                        idx = new_index = int(hashlib.md5("".join(self.prev_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.codewords[b])
+                        idx = new_index = int(hashlib.md5("".join(self.prev_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.codewords[b][0])
                     elif self.hash_scheme == 'kmeans':
-                        embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
+                        print('Prev tokens in call!!!:', prev_tokens)
                         
+                        embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
+                        # print('Previous tokens:', prev_tokens)
                         avg_embedding = sum(embeddings) / len(embeddings)
                                     # Reshape to (1, -1) since predict expects a 2D array
-                        avg_embedding = avg_embedding.reshape(1, -1)
-                        idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(self.codewords[b])
-                    #print('Encoder index kmeans:', idx)
+                        # print('Avg embedding:', avg_embedding)
+                        avg_embedding = np.array(avg_embedding).reshape(1, -1)
+                        idx = new_index = self.loaded_wrapper.predict(avg_embedding)
+                        #print('Encoder index kmeans:', idx)
+
                     #Next Bit Approach
+
                     if self.enc_method == 'Next':
                         while new_index in self.prev_encoded_indices[b]:
                             #print(new_index,' already encoded for idx',idx,' in batch ',b)
@@ -248,8 +305,12 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                             if new_index == idx:
                                 print("Error: All bits were Encoded")
                                 exit()
+
                     # if self.enc_method == 'Next' or self.enc_method == 'Standard':
-                    self.bit[b] = self.codewords[b][new_index]
+                    print('New index:', new_index)
+                    print('self.bit[b]:', self.bit[b])
+                    self.bit[b] = self.codewords[b][0][new_index]
+
                     #random bit approach
                     if self.enc_method == 'Random':
                         if new_index in self.prev_encoded_indices[b]:
@@ -257,7 +318,8 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                             print('Currently encoded bits:', self.prev_encoded_indices[b])
                             self.bit[b] = str(random.randint(0,1))
                             print('Randomly assigned bit:', self.bit[b])
-                    self.index[b] = new_index #Earlier: self.index[b] = int(hashlib.md5("".join(self.prev_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.E)
+
+                    self.index[b] = new_index #Earlier: self.index[b] = int(hashlib.md5("".join(self.prev3_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.E)
                     self.prev_encoded_indices[b].add(new_index)
                     self.t[b] = 0.5  # Reset threshold
                 
@@ -284,6 +346,8 @@ class BatchTopPLogitsWarper(LogitsProcessor):
             
             # Determine which tokens to keep based on the bit to encode
             question_mark_token_ind = -1
+            print('Bit to encode in call:', self.bit[b])
+            print('bit in codeword:', self.codewords[b][0][self.index[b]])
             if self.bit[b] == '0':
                 # For bit 0, remove tokens with cumulative probability < threshold
                 sorted_indices_to_remove = cumulative_probs < self.t[b]

@@ -63,7 +63,7 @@ def load_alpaca_dataset():
 alpaca_prompts = load_alpaca_dataset()
 PROMPTS = [x['prompt'] for x in alpaca_prompts]
 
-PROMPTS = PROMPTS[:100]
+PROMPTS = PROMPTS[:2]
 print(len(PROMPTS))
 
 MESSAGES = [

@@ -26,7 +26,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
-from ecc.reed_solomon import ReedSolomonCode
+
 
 class McEliece:
     def __init__(self, n=255, k=223, type="ReedSolomon"):

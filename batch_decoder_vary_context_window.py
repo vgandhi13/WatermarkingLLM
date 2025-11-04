@@ -1,9 +1,10 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import hashlib
-from ecc.mceliece import McEliece
-from ecc.ciphertext import Ciphertext
+from ecc.ciphertext import McEliece
+from ecc.random_linear_code import RandomLinearCode
 from collections import defaultdict
+import pickle
 
 import nltk
 nltk.download('punkt_tab')
@@ -11,12 +12,14 @@ from nltk.tokenize import word_tokenize
 import joblib
 from gensim.models import FastText
 import time
-
+from custom_kmeans_wrapper import SimpleKMeansWrapper
+import numpy as np
 #from ecc.ciphertext import Ciphertext
 # KEY = b'=\x0fs\xf1q\xccQ\x9fhi\xa7\x89\x8f\xc5#\xbf'
 
 class BatchWatermarkDecoder:
     def __init__(self, actual_model, message, dec_method, model_name, crypto_scheme, hash_scheme, kmeans_model_path="kmeans_model3.pkl", window_size=3):
+        print('TESTING ONE TWO THREE')
         self.dec_method = dec_method
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print('Device is ', self.device)
@@ -50,7 +53,11 @@ class BatchWatermarkDecoder:
         self.crypto_scheme = crypto_scheme
         self.hash_scheme = hash_scheme
         self.window_size = window_size
-    
+        with open('saved_wrapper_kmeans_2040_n3.pkl', 'rb') as f:
+            mapping = pickle.load(f)
+        self.loaded_wrapper = SimpleKMeansWrapper.__new__(SimpleKMeansWrapper)
+        self.loaded_wrapper.mapping = mapping
+        self.loaded_wrapper.codeword_length = 128
     def batch_decode(self, prompts, generated_texts, batch_size=1):
         """
         Decode watermarks from multiple texts simultaneously.
@@ -84,14 +91,8 @@ class BatchWatermarkDecoder:
 
             batch_results = []
             for b in range(actual_batch_size):
-                if self.crypto_scheme == 'McEliece':
-                    codeword = McEliece().encrypt(batch_messages[b].encode('utf-8'))[0]
-                    codeword = ''.join(format(byte, '08b') for byte in codeword)
-                elif self.crypto_scheme == 'Ciphertext':
-                    ciphertext = Ciphertext()
-                    codeword = ciphertext.encrypt('Asteroid')
-                    self.encoded_bits = [c for c in codeword]
-                    self.encoded_bit_indices = [i for i in range(len(self.encoded_bits))]
+                randomLinearCode = RandomLinearCode(n=128, k=20, seed=42)
+                codeword = randomLinearCode.encode(batch_messages[b])
                 result = self.decode(batch_prompts[b], batch_texts[b], batch_inputs['input_ids'][b], batch_full_inputs[b], logits[b], codeword)
                 batch_results.append(result)
             
@@ -119,19 +120,10 @@ class BatchWatermarkDecoder:
                 prev_tokens.append(self.tokenizer1.decode(token.item()))
             prev_tokens = prev_tokens[-self.window_size:]
         elif self.hash_scheme == 'kmeans':
-            # Initialize last_twenty_tokens and prev3_generated_tokens
-            last_twenty_tokens = []
-
-            # Fill last_twenty_tokens with decoded prompt tokens
-            for token in prompt_input_ids:
-                last_twenty_tokens.append(self.tokenizer1.decode(token.item()))
-
-            # Cap at 20 tokens
-            if len(last_twenty_tokens) > 20:
-                last_twenty_tokens = last_twenty_tokens[-20:]
-
-            # Merge tokens and tokenize into words
-            merged_string = ''.join(last_twenty_tokens)
+            # Decode the entire prompt sequence at once to preserve proper spacing
+            # This is important for SentencePiece tokenizers like Mistral
+            merged_string = self.tokenizer1.decode(prompt_input_ids, skip_special_tokens=True)
+            
             # Find the last complete word boundary (last space)
             last_space_idx = merged_string.rfind(' ')
 
@@ -142,7 +134,7 @@ class BatchWatermarkDecoder:
 
             words = word_tokenize(merged_string)
 
-            # Initialize prev3_generated_tokens (last 3 words, pad with '.')
+            # Initialize prev_tokens (last window_size words, pad with '.')
             prev_tokens = ['.'] * (self.window_size - len(words)) + words[-self.window_size:]
 
         # print('Decoder last 3 words: ', prev_tokens)
@@ -173,8 +165,9 @@ class BatchWatermarkDecoder:
                     embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
                     avg_embedding = sum(embeddings) / len(embeddings)
                                 # Reshape to (1, -1) since predict expects a 2D array
-                    avg_embedding = avg_embedding.reshape(1, -1)
+                    avg_embedding = np.array(avg_embedding).reshape(1, -1)
                     idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(codeword)
+                    idx = new_index = self.loaded_wrapper.predict(avg_embedding)  
                 # print('Index from Kmeans - decoder', idx)
 
                 #Next Bit Approach
@@ -191,28 +184,23 @@ class BatchWatermarkDecoder:
             if self.hash_scheme == 'hashlib':
                 prev_tokens = prev_tokens[1:] + [self.tokenizer1.decode(input_ids[i + 1].item())]
             elif self.hash_scheme == 'kmeans':
-                # Decode the new token
-                decoded_token = self.tokenizer1.decode(input_ids[i + 1].item())
-
-                # Update last_twenty_tokens
-                last_twenty_tokens.append(decoded_token)
-
-                # Cap last_twenty_tokens to 20 tokens
-                if len(last_twenty_tokens) > 20:
-                    last_twenty_tokens = last_twenty_tokens[-20:]
-
-                # Merge tokens into a string
-                merged_string = ''.join(last_twenty_tokens)
-                            # Find the last complete word boundary (last space)
+                # Decode all tokens up to the current position at once to preserve proper spacing
+                # This is important for SentencePiece tokenizers like Mistral
+                # We decode from the start of generated tokens (after prompt) up to current position
+                tokens_to_decode = input_ids[:i + 2]  # Include up to the current token (i+1)
+                merged_string = self.tokenizer1.decode(tokens_to_decode, skip_special_tokens=True)
+                
+                # Find the last complete word boundary (last space)
                 last_space_idx = merged_string.rfind(' ')
 
                 if last_space_idx != -1:
                     merged_string = merged_string[:last_space_idx]  # Cut off incomplete word
                 else:
                     merged_string = ''  # No spaces found, so treat as empty (no complete words)
+                
                 words = word_tokenize(merged_string)
 
-                # Initialize prev3_generated_tokens (last 3 words, pad with '.')
+                # Initialize prev_tokens (last window_size words, pad with '.')
                 prev_tokens = ['.'] * (self.window_size - len(words)) + words[-self.window_size:]
 
 

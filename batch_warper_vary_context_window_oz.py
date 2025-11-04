@@ -7,8 +7,7 @@ import hashlib
 import numpy as np
 import torch
 import random
-from ecc.mceliece import McEliece
-from ecc.ciphertext import Ciphertext
+from ecc.ciphertext import McEliece
 # Uncomment if you're using McEliece for your actual implementation
 # from ecc.mceliece import McEliece
 import nltk
@@ -84,16 +83,15 @@ class BatchTopPLogitsWarper(LogitsProcessor):
         codewords = []
         if crypto_scheme == 'McEliece':
             for message in batch_messages:
-                codeword = McEliece().encrypt(message.encode('utf-8'))[0]
-                E = ''.join(format(byte, '08b') for byte in codeword)
-                codewords.append("codeword: " + E)
-                # print(E)
-                # codewords.append('100110')
+                mceliece = McEliece()
+                codeword = mceliece.encrypt(''.join([f'{byte:08b}' for byte in message.encode('utf-8')]))      
+                codewords.append([codeword, mceliece])
+
         elif crypto_scheme == 'Ciphertext':
             for message in batch_messages:
-                ciphertext = Ciphertext()
-                codeword = ciphertext.encrypt('Asteroid')
-                codewords.append(codeword)
+                mceliece = McEliece()
+                codeword = mceliece.encrypt(''.join([f'{byte:08b}' for byte in message.encode('utf-8')]))             
+                codewords.append([codeword, mceliece])
         self.codewords = codewords
         
         
@@ -108,7 +106,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 prev_tokens = prev_tokens[-self.window_size:]
                 
                 # Hash the context to get the bit index
-                idx = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.codewords[b])
+                idx = int(hashlib.md5("".join(prev_tokens).encode()).hexdigest(), 16) % len(self.codewords[b][0])
             elif hash_scheme == 'kmeans':
                 # Decode current input_ids tokens for this batch index
                 tokens = [self.tokenizer.decode(token.item()) for token in input_ids[b]]
@@ -148,7 +146,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
             self.index.append(idx)
             
             # Get the bit to encode
-            self.bit.append(self.codewords[b][idx])
+            self.bit.append(self.codewords[b][0][idx])
             
             # Initialize other state variables
             self.questionmark_token.append(None)
@@ -230,26 +228,26 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                         self.questionmark_token_higher_prob[b] - self.questionmark_token_lower_prob[b])
                 else:
                     if self.hash_scheme == 'hashlib':
-                        idx = new_index = int(hashlib.md5("".join(self.prev_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.codewords[b])
+                        idx = new_index = int(hashlib.md5("".join(self.prev_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.codewords[b][0])
                     elif self.hash_scheme == 'kmeans':
                         embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
                         
                         avg_embedding = sum(embeddings) / len(embeddings)
                                     # Reshape to (1, -1) since predict expects a 2D array
                         avg_embedding = avg_embedding.reshape(1, -1)
-                        idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(self.codewords[b])
+                        idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(self.codewords[b][0])
                     #print('Encoder index kmeans:', idx)
                     #Next Bit Approach
                     if self.enc_method == 'Next':
                         while new_index in self.prev_encoded_indices[b]:
                             #print(new_index,' already encoded for idx',idx,' in batch ',b)
                             new_index += 1
-                            new_index = new_index % len(self.codewords[b])
+                            new_index = new_index % len(self.codewords[b][0])
                             if new_index == idx:
                                 print("Error: All bits were Encoded")
                                 break
                     # if self.enc_method == 'Next' or self.enc_method == 'Standard':
-                    self.bit[b] = self.codewords[b][new_index]
+                    self.bit[b] = self.codewords[b][0][new_index]
                     #random bit approach
                     if self.enc_method == 'Random':
                         if new_index in self.prev_encoded_indices[b]:

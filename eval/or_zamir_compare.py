@@ -1,84 +1,110 @@
-from batch_main import batch_encoder
-from batch_decoder import BatchWatermarkDecoder
+import openai
+import os
+import sys
+import random
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import time
+from typing import Optional, List, Dict
+from dotenv import load_dotenv
+from transformers import pipeline
+import nltk
+from nltk.tokenize import sent_tokenize
+nltk.download('punkt')  # Download the punkt tokenizer data
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from datasets import load_dataset
+from batch_main_vary_context_window_oz import batch_encoder
+from batch_decoder_vary_context_window import BatchWatermarkDecoder
+from unwatermarked_samp import batch_encoder as batch_unencoder
 from collections import defaultdict
-from enum import Enum
+from datetime import datetime
+from ecc.ciphertext import McEliece
+import csv
 from huggingface_hub import login
 import numpy as np
-from sklearn.metrics import precision_score, recall_score, PrecisionRecallDisplay
-from typing import List, Dict
-import sys
-import matplotlib.pyplot as plt
-import os
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import torch
-from sklearn.metrics import precision_recall_curve
-import torch.nn.functional as F
+from collections import Counter
 from enum import Enum
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from batch_main import batch_encoder
-from batch_decoder import BatchWatermarkDecoder
-from unwatermarked_samp import batch_encoder as batch_unencoder
 import datasets
-from ecc.ciphertext import Ciphertext
-from ecc.mceliece import McEliece
+import matplotlib.pyplot as plt
+from sklearn.metrics import precision_score, recall_score, confusion_matrix, classification_report, auc, precision_recall_curve, PrecisionRecallDisplay
+from custom_kmeans_wrapper import SimpleKMeansWrapper
 
 GREEN = "\033[92m"
 RED = "\033[91m"
 RESET = "\033[0m"
-# token = 'hf_your_huggingface_token_here'  # Replace with your actual Hugging Face token
-# login(token = token)
+
+#----------------USER INPUT VARIABLES BEGIN------------------
+
+load_dotenv()
+login(token = os.getenv('HF_TOKEN'))
 
 class EncDecMethod(Enum):
     STANDARD = 'Standard'
     RANDOM = 'Random'
     NEXT = 'Next'
 
-MODEL_NAMES = ['gpt2', 'gpt2-medium',   "meta-llama/Llama-3.2-1B",'ministral/Ministral-3b-instruct', "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k", "meta-llama/Meta-Llama-3-8B"]
+MODEL_NAMES = ['gpt2', 'gpt2-medium',   "meta-llama/Llama-3.2-1B",'mistralai/Mistral-7B-v0.1', "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k", "meta-llama/Meta-Llama-3-8B", "meta-llama/Meta-Llama-3-8B-Instruct", "meta-llama/Llama-3.2-1B-Instruct"]
 
 #----------------USER INPUT VARIABLES BEGIN------------------
-BATCH_SIZE = 4
+print("Testing with kmeans clustering variation")
+
+BATCH_SIZE = 1
 CRYPTO_SCHEME = 'Ciphertext' # ['McEliece', 'Ciphertext']
 MAX_TOKENS = 100
 ENC_DEC_METHOD = EncDecMethod.STANDARD.value
 HASH_SCHEME = 'kmeans' # ['hashlib', 'kmeans']
-MODEL = MODEL_NAMES[0]
+MODEL = MODEL_NAMES[1]
 print('Model used was ', MODEL)
+KMEANS_MODEL = "kmeans_model3.pkl"  # Path to the KMeans model file
+print('KMeans model used was: ', KMEANS_MODEL)
+window_size = 3
+print("Window size used was: ", window_size)
 
-def load_alpaca_dataset():
-        """Load Alpaca evaluation set with outputs"""
-        alpaca_dataset = datasets.load_dataset("tatsu-lab/alpaca_eval", trust_remote_code=True)
-        # Get both instructions and outputs
-        prompts_and_outputs = [
-            {
-                'prompt': instruction,
-                'expected_output': output
-            }
-            for instruction, output in zip(
-                alpaca_dataset['eval']['instruction'],
-                alpaca_dataset['eval']['output']
-            )
-        ]
-        return prompts_and_outputs
+def load_dataset():
+    """Load Alpaca evaluation set with outputs"""
+    dataset = datasets.load_dataset("tatsu-lab/alpaca")
+    
+    # Get both instructions and outputs
+    titles_and_prompts = [
+        {
+            'instruction': instruction,
+            'input': input,
+            'output': output
+        }
+        for instruction, input, output in zip(
+            dataset['train']['instruction'],
+            dataset['train']['input'],
+            dataset['train']['output']
+        )
+    ]
+    return titles_and_prompts
 
-alpaca_prompts = load_alpaca_dataset()
-PROMPTS = [x['prompt'] for x in alpaca_prompts]
 
-PROMPTS = PROMPTS
-print(len(PROMPTS))
+prompts = load_dataset()
+# Extract instructions from the Alpaca dataset, excluding those with input content
+PROMPTS = [p['instruction'] for p in prompts if( not p.get('input') or p['input'].strip() == '')]
 
+PROMPTS = PROMPTS[:10]
+PROMPTS = [     # Taken from the GPT-2 official example prompts https://openai.com/research/better-language-models
+        "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.",
+        "A train carriage containing controlled nuclear materials was stolen in Cincinnati today. Its whereabouts are unknown.",
+        "Miley Cyrus was caught shoplifting from Abercrombie and Fitch on Hollywood Boulevard today.",
+        "Legolas and Gimli advanced on the orcs, raising their weapons with a harrowing war cry.",
+        "For today's homework assignment, please describe the reasons for the US Civil War.",
+        "John F. Kennedy was just elected President of the United States after rising from the grave decades after his assassination. Due to miraculous developments in nanotechnology, Kennedy's brain was rebuilt from his remains and installed in the control center of a state-of-the art humanoid robot. Below is a transcript of his acceptance speech."
+    ]
+
+# Add the missing MESSAGES variable
 MESSAGES = [
     'Asteroid',
 ] * len(PROMPTS)
-
-
-    
 
 #First entry of each batch table will be printed
 #----------------USER INPUT VARIABLES END------------------
 watermarked_predictions =  []
 actual_model_fr = None
 def generate_watermarked_text():
+    average_bits_sent = 0
+    average_bits_recovered = 0
     results, actual_model = batch_encoder(PROMPTS, max_tokens=MAX_TOKENS, batch_size=BATCH_SIZE, enc_method = ENC_DEC_METHOD, messages=MESSAGES, model_name = MODEL, crypto_scheme = CRYPTO_SCHEME, hash_scheme=HASH_SCHEME)
 
     actual_model_fr = actual_model
@@ -93,7 +119,11 @@ def generate_watermarked_text():
 
         encoded_bits, encoded_bit_indices, generated_text, sampled_tokens_en, token_sampled_probs_en, t_enc, probs_start_enc = results[i]['encoded_bits'], results[i]['encoded_indices'], results[i]['generated_text'], results[i]['sampled_tokens'], results[i]['token_probs'], results[i]['t_values'], results[i]['prob_starts']
         extracted_bits, extracted_indices, sampled_tokens_dec, token_sampled_probs_dec, t_ext, probs_start_ext = decoded_results[i]['extracted_bits'], decoded_results[i]['extracted_indices'], decoded_results[i]['sampled_tokens'], decoded_results[i]['token_probs'], decoded_results[i]['threshold_values'], decoded_results[i]['prob_starts']
-        
+        # print("Expected codeword: ", results[i]['codeword'])
+        # expected_codeword, instance = results[i]['codeword']
+        # recovered_message, recovered_r = instance.decrypt(expected_codeword)
+        # print("Recovered message: ", recovered_message)
+        # print("Recovered randomness: ", recovered_r)
         bits_match = encoded_bits == extracted_bits
         indices_match = encoded_bit_indices == extracted_indices
         tokens_match = sampled_tokens_en == sampled_tokens_dec
@@ -129,6 +159,8 @@ def generate_watermarked_text():
         
         print("Encoded index and their bits", enc_idx_bit_map)
         print("Decoded index and their bits", ext_idx_bit_map)
+        average_bits_sent += sum(len(v) for v in enc_idx_bit_map.values())
+        average_bits_recovered += sum(len(v) for v in ext_idx_bit_map.values())
 
         not_decoded = 0
         bit_not_same = 0
@@ -145,7 +177,11 @@ def generate_watermarked_text():
         matches = 0
         num_enc_bits = 0
         num_dec_bits = 0
-
+        # calculate how many indices are failign to be sent 
+        set_of_indices = set(range(128))
+        set_of_indices = set_of_indices - set(enc_idx_bit_map.keys())
+        print('Indices which were not even encoded', set_of_indices)
+        print('Indices which were not decoded or encoded', set_of_indices-set(ext_idx_bit_map.keys()))
         for i, enc_arr in enc_idx_bit_map.items(): #change the decoding
             if i not in ext_idx_bit_map:
                 break
@@ -158,13 +194,30 @@ def generate_watermarked_text():
             num_enc_bits += len(enc_arr)
             num_dec_bits += len(dec_arr)
         # print(matches, num_enc_bits, num_dec_bits)
-        watermarked_predictions.append(matches/num_dec_bits)
-        if CRYPTO_SCHEME == 'Ciphertext':
-            print("Precision is ", matches/num_dec_bits)
-            print("Recall is ", matches/num_enc_bits)
-        else:
-            # need to just check if the codeword decodes correctly.
-            pass
+        watermarked_predictions.append(matches/num_dec_bits if num_dec_bits>0 else 0)
+        # if CRYPTO_SCHEME == 'Ciphertext':
+        #     # Create ciphertext instance for decoding
+        #     ciphertext = Ciphertext()
+        #     codeword = [0]*128
+        #     for i in range(len(codeword)):
+        #         codeword[i] = random.randint(0, 1)
+        #     for i, ext_arr in ext_idx_bit_map.items():
+        #         counts = Counter(ext_arr)
+        #         most_common_element = counts.most_common(1)[0][0]
+        #         codeword[i] = most_common_element
+        #     print("Expected codeword: ", expected_codeword)    
+        #     print("Actual   codeword: ", "".join(str(bit) for bit in codeword))
+        #     dec1, errors1, rec_r1 = instance.decrypt("".join(str(bit) for bit in codeword))
+        #     print("Decoded codeword: ", dec1.decode('utf-8'))
+            
+        #     print("Decoding algorithm result:")
+        #     if instance.decrypt("".join(str(bit) for bit in codeword)) == 'A':
+        #         print("Codeword decoded correctly")
+        #     print("Precision is ", matches/num_dec_bits)
+        #     print("Recall is ", matches/num_enc_bits)
+        # else:
+        #     # need to just check if the codeword decodes correctly.
+        #     pass
             
 
 
@@ -210,7 +263,7 @@ def generate_watermarked_text():
 
 
         
-    return actual_model
+    return actual_model, average_bits_sent, average_bits_recovered
     
     
     
@@ -280,8 +333,8 @@ def generate_unwatermarked_text(actual_model_fr):
         enc_idx_bit_map = defaultdict(list)
         ext_idx_bit_map = defaultdict(list)
         if CRYPTO_SCHEME == 'McEliece':
-            codeword = McEliece().encrypt(MESSAGES[0].encode('utf-8'))[0]
-            codeword = ''.join(format(byte, '08b') for byte in codeword)
+            ciphertext = Ciphertext()
+            codeword = ciphertext.encrypt(MESSAGES[0])
             #codeword = '100110'
         elif CRYPTO_SCHEME == 'Ciphertext':
             ciphertext = Ciphertext()
@@ -323,26 +376,31 @@ def generate_unwatermarked_text(actual_model_fr):
         # Print unified table if there's a mismatch
         
             
-actual_model_fr = generate_watermarked_text()
-generate_unwatermarked_text(actual_model_fr)
-all_predictions = watermarked_predictions + unwatermarked_predictions
-print(all_predictions)
-all_ground_truth = [1]*len(watermarked_predictions) + [0]*len(unwatermarked_predictions)
-metrics = calculate_metrics(all_ground_truth, all_predictions)
+actual_model_fr, average_bits_sent, average_bits_recovered = generate_watermarked_text()
+print("RUN ENDED WHILE SENDING AVERAGE OF THIS MANY BITS:", average_bits_sent/len(PROMPTS))
+print("RUN ENDED WHILE RECOVERING AVERAGE OF THIS MANY BITS:", average_bits_recovered/len(PROMPTS))
+# generate_unwatermarked_text(actual_model_fr)
+# all_predictions = watermarked_predictions + unwatermarked_predictions
+# print(all_predictions)
+# all_ground_truth = [1]*len(watermarked_predictions) + [0]*len(unwatermarked_predictions)
+# metrics = calculate_metrics(all_ground_truth, all_predictions)
 
 
 
-precision, recall, _ = precision_recall_curve(all_ground_truth, all_predictions)
-disp = PrecisionRecallDisplay(precision=precision, recall=recall)
-disp.plot()
-disp.plot().figure_.savefig('precision_recall_curve_ciphertext_next.png')
+
+# all_ground_truth = [1]*len(all_predictions) + [0]*len(unwatermarked_predictions)
+# all_predictions = all_predictions + unwatermarked_predictions
+# precision, recall, _ = precision_recall_curve(all_ground_truth, all_predictions)
+# disp = PrecisionRecallDisplay(precision=precision, recall=recall)
+# disp.plot()
+# disp.plot().figure_.savefig('precision_recall_curve_mceliece_standard.png')
 
     
-print("\nWatermarking Detection Metrics:")
-print("-" * 50)
-print(f"Precision: {metrics['precision']:.4f}")
-print(f"Recall: {metrics['recall']:.4f}")
-print(f"True Positive Rate (recall) (TPR): {metrics['tpr']:.4f}")
-print(f"True Negative Rate (TNR): {metrics['tnr']:.4f}")
-print(f"False Positive Rate (FPR): {metrics['fpr']:.4f}")
-print(f"False Negative Rate (FNR): {metrics['fnr']:.4f}")
+# print("\nWatermarking Detection Metrics:")
+# print("-" * 50)
+# print(f"Precision: {metrics['precision']:.4f}")
+# print(f"Recall: {metrics['recall']:.4f}")
+# print(f"True Positive Rate (recall) (TPR): {metrics['tpr']:.4f}")
+# print(f"True Negative Rate (TNR): {metrics['tnr']:.4f}")
+# print(f"False Positive Rate (FPR): {metrics['fpr']:.4f}")
+# print(f"False Negative Rate (FNR): {metrics['fnr']:.4f}")

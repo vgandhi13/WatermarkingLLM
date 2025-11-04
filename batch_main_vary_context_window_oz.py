@@ -126,7 +126,7 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash
             hash_scheme=hash_scheme,
             window_size=window_size
         )
-        
+        codewords = logits_processor_i.codewords
         # # Generate tokens for the batch
         # for step in range(max_tokens): #to be changed using generation function
         #     # Get model outputs
@@ -192,7 +192,8 @@ def batch_encoder(prompts, enc_method, messages, model_name, crypto_scheme, hash
                 "sampled_tokens": batch_sampled_tokens[b],
                 "token_probs": batch_token_probs[b],
                 "t_values": batch_t_enc[b],
-                "prob_starts": batch_prob_start[b]
+                "prob_starts": batch_prob_start[b],
+                'codeword': codewords[b]
             })
     
     return results, model

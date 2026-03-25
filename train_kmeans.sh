@@ -8,4 +8,4 @@
 #SBATCH -o slurm-%j.out  # %j = job ID
 
 source ./WatVenv/bin/activate
-python kmeans_n_variation.py
+python kmeans_n_variation_bisecting.py

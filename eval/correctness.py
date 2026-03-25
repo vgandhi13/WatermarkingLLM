@@ -52,9 +52,9 @@ CRYPTO_SCHEME = 'RANDOM'
 MAX_TOKENS = 500
 ENC_DEC_METHOD = EncDecMethod.STANDARD.value
 HASH_SCHEME = 'kmeans' # ['hashlib', 'kmeans']
-MODEL = MODEL_NAMES[0]
+MODEL = MODEL_NAMES[3]
 print('Model used was ', MODEL)
-KMEANS_MODEL = "kmeans_model3.pkl"  # Path to the KMeans model file
+KMEANS_MODEL = "kmeans_model_2040_n3_minibatch.pkl"  # Path to the KMeans model file
 print('KMeans model used was: ', KMEANS_MODEL)
 window_size = 3
 print("Window size used was: ", window_size)
@@ -83,7 +83,7 @@ prompts = load_dataset()
 # Extract instructions from the Alpaca dataset, excluding those with input content
 PROMPTS = [p['instruction'] for p in prompts if( not p.get('input') or p['input'].strip() == '')]
 
-PROMPTS = PROMPTS[:5]
+PROMPTS = PROMPTS[:20]
 
 # Add the missing MESSAGES variable
 MESSAGES = [
@@ -97,10 +97,11 @@ MESSAGES = [
 #First entry of each batch table will be printed
 #----------------USER INPUT VARIABLES END------------------
 watermarked_predictions =  []
+covered_indices = []
 actual_model_fr = None
 def generate_watermarked_text():
     results, actual_model = batch_encoder(PROMPTS, max_tokens=MAX_TOKENS, batch_size=BATCH_SIZE, enc_method = ENC_DEC_METHOD, messages=MESSAGES, model_name = MODEL, crypto_scheme = CRYPTO_SCHEME, hash_scheme=HASH_SCHEME)
-
+    
     actual_model_fr = actual_model
     decoder = BatchWatermarkDecoder(actual_model, message=MESSAGES, dec_method=ENC_DEC_METHOD, model_name = MODEL, crypto_scheme=CRYPTO_SCHEME, hash_scheme=HASH_SCHEME)
     decoded_results = decoder.batch_decode(
@@ -153,6 +154,8 @@ def generate_watermarked_text():
                 ext_idx_bit_map[extracted_indices[i]].append(extracted_bits[i])
         
         print("Encoded index and their bits", enc_idx_bit_map)
+        print("Covered how many indices? ", len(enc_idx_bit_map.keys()))
+        covered_indices.append(len(enc_idx_bit_map.keys()))
         print("Decoded index and their bits", ext_idx_bit_map)
 
         not_decoded = 0
@@ -221,7 +224,7 @@ def generate_watermarked_text():
                 counts = Counter(ext_arr)
                 most_common_element = counts.most_common(1)[0][0]
                 codeword[i] = most_common_element
-            recovered_message, recovered_codeword, distance = instance.decode(codeword, ext_idx_bit_map)
+            recovered_message, recovered_codeword, distance = instance.decode(codeword, ext_idx_bit_map, fixed_codeword=expected_codeword)
             print("Recovered message (binary string): ", recovered_message)
             # Convert MESSAGES[0] (list of strings) to binary string for comparison
             expected_message_str = ''.join(MESSAGES[0])
@@ -339,6 +342,8 @@ def generate_unwatermarked_text(actual_model_fr, codeword):
             if extracted_bits[i] != '?':
                 ext_idx_bit_map[extracted_indices[i]].append(extracted_bits[i])
         print("Decoded index and their bits", ext_idx_bit_map)
+        print("Failed to recover decoded indices", set(range(128)) - set(ext_idx_bit_map.keys()))
+        print("This many: ", len(set(range(128)) - set(ext_idx_bit_map.keys())))
          # ground truth bit map
         ground_truth_bit_map = defaultdict(list)
         for j in range(len(str(expected_codeword))):
@@ -352,7 +357,7 @@ def generate_unwatermarked_text(actual_model_fr, codeword):
                 counts = Counter(ext_arr)
                 most_common_element = counts.most_common(1)[0][0]
                 recoveredcodeword[i] = most_common_element
-            recovered_message, recovered_codeword, distance = instance.decode(''.join(str(bit) for bit in recoveredcodeword), ext_idx_bit_map)
+            recovered_message, recovered_codeword, distance = instance.decode(''.join(str(bit) for bit in recoveredcodeword), ext_idx_bit_map, fixed_codeword=expected_codeword)
             print("Recovered message (binary string): ", recovered_message)
             # Convert MESSAGES[0] (list of strings) to binary string for comparison
             expected_message_str = ''.join(MESSAGES[0])
@@ -368,9 +373,22 @@ def generate_unwatermarked_text(actual_model_fr, codeword):
         
             
 actual_model_fr, codeword = generate_watermarked_text()
-generate_unwatermarked_text(actual_model_fr, codeword)
+print("Covered indices: ", covered_indices)
+print("Average covered indices using minibatch model: ", sum(covered_indices) / len(covered_indices))
+# generate_unwatermarked_text(actual_model_fr, codeword)
 all_predictions = watermarked_predictions + unwatermarked_predictions
 print("ALL PREDICTIONS: ", all_predictions)
 all_ground_truth = [1]*len(watermarked_predictions) + [0]*len(unwatermarked_predictions)
+
+precision, recall, thresholds = precision_recall_curve(all_ground_truth, all_predictions)
+auc_score = auc(recall, precision)
+plt.figure(figsize=(8, 6))
+plt.plot(recall, precision, label=f'Precision-Recall Curve (AUC = {auc_score:.2f})')
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.title('Precision-Recall Curve')
+plt.legend()
+plt.savefig('precision_recall_curve_saved_wrapper_kmeans_2040_n3_minibatch.png')
+plt.close()
 
 

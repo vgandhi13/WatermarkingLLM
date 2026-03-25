@@ -104,10 +104,10 @@ if __name__ == "__main__":
 
     for i, kmeans_model in enumerate(kmeans_models):
         print(f"KMeans model trained with {kmeans_model.n_clusters} clusters.")
-        joblib.dump(kmeans_model, f"kmeans_model_{kmeans_model.n_clusters}_n3.pkl")
-        print(f"KMeans model saved as kmeans_model_{kmeans_model.n_clusters}_n3.pkl")
+        joblib.dump(kmeans_model, f"kmeans_model_{kmeans_model.n_clusters}_n3_bisecting.pkl")
+        print(f"KMeans model saved as kmeans_model_{kmeans_model.n_clusters}_n3_bisecting.pkl")
     
-        kmeans_model = joblib.load(f"kmeans_model_{kmeans_model.n_clusters}_n3.pkl")
-        print(f"KMeans model loaded from kmeans_model_{kmeans_model.n_clusters}_n3.pkl")    
+        kmeans_model = joblib.load(f"kmeans_model_{kmeans_model.n_clusters}_n3_bisecting.pkl")
+        print(f"KMeans model loaded from kmeans_model_{kmeans_model.n_clusters}_n3_bisecting.pkl")    
         print("Cluster centers (first 10 dims):", kmeans_model.cluster_centers_[:10])
         print("Number of clusters:", kmeans_model.n_clusters)

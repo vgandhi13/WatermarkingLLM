@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH -c 4  # Number of Cores per Task
+#SBATCH -c 1  # Number of Cores per Task
 #SBATCH --nodes=1 # Number of Nodes
-#SBATCH --mem=100G  # Requested Memory
+#SBATCH --mem=300G  # Requested Memory
 #SBATCH -p gpu  # Partition
 #SBATCH -G 1  # Number of GPUs
-#SBATCH  --constraint=vram48
+#SBATCH  --constraint=vram23
 #SBATCH -t 48:00:00  # Job time limit
 #SBATCH -o correctness-%j.out  # %j = job ID
 

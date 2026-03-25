@@ -77,6 +77,21 @@ class BatchTopPLogitsWarper(LogitsProcessor):
         
         return decoded_tokens
 
+    def flush_positions(self):
+        """
+        Returns a list of position-strings (one for each batch element),
+        exactly like the old flush_position() in the original watermark class.
+        """
+        results = []
+        for b in range(self.batch_size):
+            pos_str = "".join(str(p) for p in self.sampled_token_positions[b])
+            results.append(pos_str)
+
+            # Reset after flushing (same behavior as old code)
+            self.sampled_token_positions[b] = []
+
+        return results
+
     def __init__(self, batch_encoded_bits,
             batch_encoded_indices, 
             batch_sampled_tokens, 
@@ -126,6 +141,9 @@ class BatchTopPLogitsWarper(LogitsProcessor):
         self.prev_generated_tokens = []
         self.prev_encoded_indices = []
         
+        # Sachin - new
+        self.sampled_token_positions = [[] for _ in range(batch_size)]
+        
 
         # In production, you would use:
         codewords = []
@@ -134,6 +152,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 randomLinearCode = RandomLinearCode(n=128, k=20, seed=42)
                 codeword = randomLinearCode.encode(message)
                 codewords.append([codeword, randomLinearCode])
+                print("USED RANDOM LINEAR CODE")
         if crypto_scheme == 'McEliece':
             for message in batch_messages:
                 mceliece = McEliece()
@@ -147,11 +166,12 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 codewords.append([codeword, mceliece])
         self.codewords = codewords
         
-        with open('saved_wrapper_kmeans_2040_n3.pkl', 'rb') as f:
+        with open('/work/pi_adamoneill_umass_edu/WatermarkingLLM/saved_wrapper_kmeans_2040_n3_minibatch.pkl', 'rb') as f:
             mapping = pickle.load(f)
         self.loaded_wrapper = SimpleKMeansWrapper.__new__(SimpleKMeansWrapper)
         self.loaded_wrapper.mapping = mapping
         self.loaded_wrapper.codeword_length = 128
+        print('USING saved_wrapper_kmeans_2040_n3_minibatch.pkl - minibatch one')
         
         # Initialize state for each sequence in the batch
         for b in range(batch_size):
@@ -195,9 +215,10 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 # Reshape to (1, -1) since predict expects a 2D array
                 avg_embedding = np.array(avg_embedding).reshape(1, -1)
                 # idx = self.kmeans_model.predict(avg_embedding)[0] % len(self.codewords[b][0])
+                idx = self.loaded_wrapper.predict(avg_embedding, "/work/pi_adamoneill_umass_edu/WatermarkingLLM/kmeans_model_2040_n3_minibatch.pkl")
                 # print('Avg embedding:', avg_embedding)
-                idx = self.loaded_wrapper.predict(avg_embedding)
-                print('Index:', idx)
+                # idx = self.loaded_wrapper.predict(avg_embedding)
+                # print('Index:', idx)
                 # print('Wanted to encode index:', idx)
             # Append the last self.window_size words for this batch index
             self.prev_generated_tokens.append(prev_tokens)
@@ -208,7 +229,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
             # Get the bit to encode
             # print(self.codewords[b][0])
             # print(self.codewords[b][0][0])
-            print('Bit to encode:', self.codewords[b][0][idx])
+            # print('Bit to encode:', self.codewords[b][0][idx])
             self.bit.append(self.codewords[b][0][idx])
             
             # Initialize other state variables
@@ -284,7 +305,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                     if self.hash_scheme == 'hashlib':
                         idx = new_index = int(hashlib.md5("".join(self.prev_generated_tokens[b]).encode()).hexdigest(), 16) % len(self.codewords[b][0])
                     elif self.hash_scheme == 'kmeans':
-                        print('Prev tokens in call!!!:', prev_tokens)
+                        # print('Prev tokens in call!!!:', prev_tokens)
                         
                         embeddings = [self.fasttext_model.wv[token] for token in prev_tokens]
                         # print('Previous tokens:', prev_tokens)
@@ -292,7 +313,8 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                                     # Reshape to (1, -1) since predict expects a 2D array
                         # print('Avg embedding:', avg_embedding)
                         avg_embedding = np.array(avg_embedding).reshape(1, -1)
-                        idx = new_index = self.loaded_wrapper.predict(avg_embedding)
+                        idx = new_index = self.loaded_wrapper.predict(avg_embedding, "/work/pi_adamoneill_umass_edu/WatermarkingLLM/kmeans_model_2040_n3_minibatch.pkl")
+                        # idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(self.codewords[b][0])
                         #print('Encoder index kmeans:', idx)
 
                     #Next Bit Approach
@@ -307,8 +329,8 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                                 exit()
 
                     # if self.enc_method == 'Next' or self.enc_method == 'Standard':
-                    print('New index:', new_index)
-                    print('self.bit[b]:', self.bit[b])
+                    # print('New index:', new_index)
+                    # print('self.bit[b]:', self.bit[b])
                     self.bit[b] = self.codewords[b][0][new_index]
 
                     #random bit approach
@@ -328,6 +350,9 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 token_pos = (self.sorted_indices[b] == sampled_token.item()).nonzero(as_tuple=True)[0].item()
                 prob_of_token_in_cum = self.cum_probs[b][token_pos].item()
                 
+                # Sachin - storing sampled positions in a list:
+                self.sampled_token_positions[b].append(token_pos)
+
                 if prob_of_token_in_cum == self.cum_probs[b][0].item():
                     prob_of_start_of_token = 0
                 else:
@@ -346,8 +371,8 @@ class BatchTopPLogitsWarper(LogitsProcessor):
             
             # Determine which tokens to keep based on the bit to encode
             question_mark_token_ind = -1
-            print('Bit to encode in call:', self.bit[b])
-            print('bit in codeword:', self.codewords[b][0][self.index[b]])
+            # print('Bit to encode in call:', self.bit[b])
+            # print('bit in codeword:', self.codewords[b][0][self.index[b]])
             if self.bit[b] == '0':
                 # For bit 0, remove tokens with cumulative probability < threshold
                 sorted_indices_to_remove = cumulative_probs < self.t[b]

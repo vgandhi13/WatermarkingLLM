@@ -53,7 +53,7 @@ class BatchWatermarkDecoder:
         self.crypto_scheme = crypto_scheme
         self.hash_scheme = hash_scheme
         self.window_size = window_size
-        with open('saved_wrapper_kmeans_2040_n3.pkl', 'rb') as f:
+        with open('/work/pi_adamoneill_umass_edu/WatermarkingLLM/saved_wrapper_kmeans_2040_n3_minibatch.pkl', 'rb') as f:
             mapping = pickle.load(f)
         self.loaded_wrapper = SimpleKMeansWrapper.__new__(SimpleKMeansWrapper)
         self.loaded_wrapper.mapping = mapping
@@ -81,7 +81,7 @@ class BatchWatermarkDecoder:
             
             # Tokenize prompts and generated texts together with padding
             batch_inputs = self.tokenizer1(batch_prompts, return_tensors="pt", padding=True).to(self.device)
-            batch_full_inputs = self.tokenizer2(batch_texts, return_tensors="pt", padding=True, add_special_tokens=False).to(self.device)
+            batch_full_inputs = self.tokenizer2(batch_texts, return_tensors="pt", padding=True).to(self.device)
             batch_full_inputs = torch.cat((batch_inputs.input_ids, batch_full_inputs.input_ids), dim = 1).long().to(self.device)
             # print('Decpder IDs ',batch_inputs.input_ids)
 
@@ -154,8 +154,19 @@ class BatchWatermarkDecoder:
         question_mark = ''
         
         # Start decoding after the prompt tokens
+        # Match encoder behavior: encoder appends bit only when sampled_once is True
+        # Encoder flow: first call sets sampled_once=True (no bit), subsequent calls append bits
+        # So if G tokens generated, encoder appends G-1 bits (one per token except first)
         prompt_length = len(prompt_input_ids)
-        for i in range(prompt_length - 1, len(logits)):
+        generated_length = len(input_ids) - prompt_length
+        
+        # Simulate encoder: skip first generated token (no bit appended for it)
+        # Decode for remaining generated tokens (where encoder appended bits)
+        # Encoder appends bits for tokens at positions: prompt_length, prompt_length+1, ..., prompt_length+generated_length-2
+        # logits[i] predicts token at position i+1
+        # So we need logits at indices: prompt_length-1, prompt_length, ..., prompt_length+generated_length-3
+        # Range: [prompt_length-1, prompt_length+generated_length-2)
+        for i in range(prompt_length - 1, prompt_length - 1 + max(0, generated_length - 1)):
 
             if question_mark != '?':
                 # Determine the bit index based on previous tokens
@@ -166,8 +177,8 @@ class BatchWatermarkDecoder:
                     avg_embedding = sum(embeddings) / len(embeddings)
                                 # Reshape to (1, -1) since predict expects a 2D array
                     avg_embedding = np.array(avg_embedding).reshape(1, -1)
-                    idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(codeword)
-                    idx = new_index = self.loaded_wrapper.predict(avg_embedding)  
+                    # idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(codeword)
+                    idx = new_index = self.loaded_wrapper.predict(avg_embedding, "/work/pi_adamoneill_umass_edu/WatermarkingLLM/kmeans_model_2040_n3_minibatch.pkl")  
                 # print('Index from Kmeans - decoder', idx)
 
                 #Next Bit Approach
@@ -219,8 +230,7 @@ class BatchWatermarkDecoder:
             prob_of_start_of_token = 0 if prob_of_next_token == cumulative_probs[0].item() else cumulative_probs[next_token_position - 1].item()
             
             # Track threshold
-            if i != (len(logits) - 1):
-                t_ext.append(t)
+            t_ext.append(t)
             
             if prob_of_next_token < t:
                 bit = '1'
@@ -235,13 +245,12 @@ class BatchWatermarkDecoder:
                 bit = '?'
                 t = (t - prob_of_start_of_token) / (prob_of_next_token - prob_of_start_of_token)
             
-            # Record information
-            if i != (len(logits) - 1):
-                extracted_bits.append(bit)
-                extracted_indices.append(index)
-                sampled_tokens.append(question_mark + self.tokenizer1.decode(next_token_id))
-                token_sampled_probs.append(prob_of_next_token)
-                probs_start.append(prob_of_start_of_token)
+            # Record information (always record since we're only iterating over positions where encoder appended bits)
+            extracted_bits.append(bit)
+            extracted_indices.append(index)
+            sampled_tokens.append(question_mark + self.tokenizer1.decode(next_token_id))
+            token_sampled_probs.append(prob_of_next_token)
+            probs_start.append(prob_of_start_of_token)
         self.extracted_bits = extracted_bits
         self.extracted_indices = extracted_indices
         self.sampled_tokens = sampled_tokens

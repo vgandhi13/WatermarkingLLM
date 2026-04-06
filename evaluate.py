@@ -202,11 +202,10 @@ def llm_judge(text):
         response = client.chat.completions.create(
             model="gpt-5-mini",
             messages=[
-                {"role": "system", "content": "You are an expert at judging the quality of texts based on their properties. You return the scores in the format provided, and nothing else."},
+                {"role": "developer", "content": "You are an expert at judging the quality of texts based on their properties. You return the scores in the format provided, and nothing else."},
                 {"role": "user", "content": llm_prompt + text}
             ],
-            temperature=1,
-            max_completion_tokens=MAX_TOKENS
+            max_completion_tokens=1024
         )
         return json.loads(response.choices[0].message.content)
     except Exception as e:
@@ -221,11 +220,10 @@ def paraphrase(text):
         response = client.chat.completions.create(
             model="gpt-5-mini",
             messages=[
-                {"role": "system", "content": "You are an expert at paraphrasing text, making sure to keep the same meaning, style, tone, and context. Return the paraphrased text only."},
+                {"role": "developer", "content": "You are an expert at paraphrasing text, making sure to keep the same meaning, style, tone, and context. Return the paraphrased text only."},
                 {"role": "user", "content": "Paraphrase the following text:\n" + text}
             ],
-            temperature=1,
-            max_completion_tokens=MAX_TOKENS
+            max_completion_tokens=1024
         )
         return str(response.choices[0].message.content)
     except Exception as e:

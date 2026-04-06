@@ -206,7 +206,7 @@ def llm_judge(text):
                 {"role": "user", "content": llm_prompt + text}
             ],
             temperature=1,
-            max_tokens=MAX_TOKENS
+            max_completion_tokens=MAX_TOKENS
         )
         return json.loads(response.choices[0].message.content)
     except Exception as e:
@@ -225,7 +225,7 @@ def paraphrase(text):
                 {"role": "user", "content": "Paraphrase the following text:\n" + text}
             ],
             temperature=1,
-            max_tokens=MAX_TOKENS
+            max_completion_tokens=MAX_TOKENS
         )
         return str(response.choices[0].message.content)
     except Exception as e:

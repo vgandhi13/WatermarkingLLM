@@ -10,8 +10,10 @@ from dotenv import load_dotenv
 
 # fasttext_model = FastText.load_fasttext_format("cc.en.300.bin")
 
-current_dir = os.path.dirname(__file__)
-fasttext_model_path = os.path.join(current_dir, "cc.en.300.bin")
+fasttext_model_path = os.environ.get(
+    "FASTTEXT_MODEL_PATH",
+    os.path.join(os.path.dirname(__file__), "cc.en.300.bin")
+)
 fasttext_model = FastText.load_fasttext_format(fasttext_model_path)
 
 load_dotenv()

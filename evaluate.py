@@ -55,6 +55,8 @@ sys.path.insert(0, os.path.join(_EC, 'stanford_watermarking'))
 sys.path.insert(0, os.path.join(_EC, 'orzamir'))
 # Existing_code/asteroid/ contains the patched batch_decoder; added first for priority
 sys.path.insert(0, os.path.join(_EC, 'asteroid'))
+# reedmuller is a package inside ecc/ — its parent must be on sys.path
+sys.path.insert(0, os.path.join(_EC, 'asteroid', 'ecc'))
 
 # Stanford — use importlib for generate.py to avoid collision with OrZamir's generate.py
 _stanford_gen = _load_module("stanford_generate_mod", os.path.join(_EC, "stanford/generate.py"))

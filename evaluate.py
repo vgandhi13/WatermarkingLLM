@@ -319,8 +319,10 @@ def detect_stanford(texts, model_name, key):
 
 
 def generate_asteroid(prompts, model_name, max_tokens):
-    """Generate watermarked texts using Asteroid's method."""
-    messages = [['1'] * 20] * len(prompts)
+    """Generate watermarked texts using Asteroid's method.
+    Each prompt gets a unique random 20-bit message so different codewords are embedded.
+    """
+    messages = [random.choices(['0', '1'], k=20) for _ in prompts]
     results, model = asteroid_encoder(
         prompts,
         max_tokens=max_tokens,
@@ -336,12 +338,11 @@ def generate_asteroid(prompts, model_name, max_tokens):
     texts = [r["generated_text"] for r in results]
     for t in texts:
         print(f"  Asteroid watermarked: {t[:80]}...")
-    return texts, results, model
+    return texts, results, model, messages
 
 
-def detect_asteroid(prompts, texts, model, model_name):
+def detect_asteroid(prompts, texts, model, model_name, messages):
     """Detect watermark using Asteroid's decoder. Returns list of precision scores."""
-    messages = [['1'] * 20] * len(prompts)
     decoder = BatchWatermarkDecoder(
         actual_model=model,
         message=messages,
@@ -371,12 +372,11 @@ def detect_asteroid(prompts, texts, model, model_name):
     return precisions
 
 
-def detect_asteroid_no_prompt(texts, model, model_name):
+def detect_asteroid_no_prompt(texts, model, model_name, messages):
     """Detect watermark using Asteroid's decoder WITHOUT providing the prompt.
     Simulates a no-prompt attack: attacker only has the generated text, not the original prompt.
     Returns list of precision scores (same metric as detect_asteroid).
     """
-    messages = [['1'] * 20] * len(texts)
     decoder = BatchWatermarkDecoder(
         actual_model=model,
         message=messages,
@@ -511,7 +511,7 @@ def main():
 
     # --- Asteroid (watermarked + unwatermarked) ---
     print("\n[Asteroid watermarked]")
-    asteroid_wat_texts, asteroid_enc_results, asteroid_model = generate_asteroid(prompts, MODEL_NAME, MAX_TOKENS)
+    asteroid_wat_texts, asteroid_enc_results, asteroid_model, asteroid_messages = generate_asteroid(prompts, MODEL_NAME, MAX_TOKENS)
 
     # Compute bits sent for Asteroid (from encoder results)
     asteroid_bits_sent = []
@@ -590,9 +590,9 @@ def main():
     oz_model.cpu(); torch.cuda.empty_cache()
     asteroid_model.cuda()
     print("  Asteroid detection on watermarked...")
-    asteroid_det_wat = detect_asteroid(prompts, asteroid_wat_texts, asteroid_model, MODEL_NAME)
+    asteroid_det_wat = detect_asteroid(prompts, asteroid_wat_texts, asteroid_model, MODEL_NAME, asteroid_messages)
     print("  Asteroid detection on unwatermarked...")
-    asteroid_det_unwat = detect_asteroid(prompts, asteroid_unwat_texts, asteroid_model, MODEL_NAME)
+    asteroid_det_unwat = detect_asteroid(prompts, asteroid_unwat_texts, asteroid_model, MODEL_NAME, asteroid_messages)
     asteroid_model.cpu(); torch.cuda.empty_cache()
 
     # OrZamir detection (score based: higher = more likely watermarked)
@@ -620,7 +620,7 @@ def main():
     stanford_det_para = detect_stanford(stanford_paraphrased, MODEL_NAME, WATERMARK_KEY)
     print("  Detecting watermark in paraphrased Asteroid texts...")
     asteroid_model.cuda()
-    asteroid_det_para = detect_asteroid(prompts, asteroid_paraphrased, asteroid_model, MODEL_NAME)
+    asteroid_det_para = detect_asteroid(prompts, asteroid_paraphrased, asteroid_model, MODEL_NAME, asteroid_messages)
     asteroid_model.cpu(); torch.cuda.empty_cache()
     print("  Detecting watermark in paraphrased OrZamir texts...")
     orzamir_det_para = detect_orzamir(orzamir_paraphrased, oz_tokenizer, WATERMARK_KEY)
@@ -629,9 +629,9 @@ def main():
     print("\n--- No-prompt attack detection (Asteroid only) ---")
     asteroid_model.cuda()
     print("  No-prompt detection on watermarked Asteroid texts...")
-    asteroid_no_prompt_wat = detect_asteroid_no_prompt(asteroid_wat_texts, asteroid_model, MODEL_NAME)
+    asteroid_no_prompt_wat = detect_asteroid_no_prompt(asteroid_wat_texts, asteroid_model, MODEL_NAME, asteroid_messages)
     print("  No-prompt detection on unwatermarked Asteroid texts...")
-    asteroid_no_prompt_unwat = detect_asteroid_no_prompt(asteroid_unwat_texts, asteroid_model, MODEL_NAME)
+    asteroid_no_prompt_unwat = detect_asteroid_no_prompt(asteroid_unwat_texts, asteroid_model, MODEL_NAME, asteroid_messages)
     asteroid_model.cpu(); torch.cuda.empty_cache()
 
     # ------------------------------------------------------------------
@@ -660,7 +660,7 @@ def main():
 
         # Asteroid (watermarked + unwatermarked) — seed passed via torch.manual_seed before call
         torch.manual_seed(round_seed)
-        r_asteroid_wat, _, _div_model = generate_asteroid(prompts, MODEL_NAME, MAX_TOKENS)
+        r_asteroid_wat, _, _div_model, _ = generate_asteroid(prompts, MODEL_NAME, MAX_TOKENS)
         _div_model.cpu(); del _div_model; torch.cuda.empty_cache()
         torch.manual_seed(round_seed)
         r_asteroid_unwat = generate_unwatermarked_asteroid(prompts, MODEL_NAME, MAX_TOKENS)

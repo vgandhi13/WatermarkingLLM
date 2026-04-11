@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -c 4  # Number of Cores per Task
-#SBATCH --mem=200G  # Requested Memory
+#SBATCH --mem=300G  # Requested Memory
 #SBATCH -p gpu  # Partition
 #SBATCH -G 1  # Number of GPUs
 #SBATCH --constraint=vram48

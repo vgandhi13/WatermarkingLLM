@@ -215,13 +215,15 @@ def llm_judge(text):
 # ======================================================================
 # 3. PARAPHRASER
 # ======================================================================
-def paraphrase(text):
+PARAPHRASE_PCTS = [25, 50, 75, 100]
+
+def paraphrase(text, pct=100):
     try:
         response = client.chat.completions.create(
             model="gpt-5-mini",
             messages=[
                 {"role": "developer", "content": "You are an expert at paraphrasing text, making sure to keep the same meaning, style, tone, and context. Return the paraphrased text only."},
-                {"role": "user", "content": "Paraphrase the following text:\n" + text}
+                {"role": "user", "content": f"Paraphrase {pct}% of the following text, keeping the same overall meaning:\n" + text}
             ],
             max_completion_tokens=1024
         )
@@ -244,11 +246,11 @@ def llm_judge_batch(texts):
     return results
 
 
-def paraphrase_batch(texts):
-    """Paraphrase all texts in parallel."""
+def paraphrase_batch(texts, pct=100):
+    """Paraphrase all texts in parallel at the given strength percentage."""
     results = [None] * len(texts)
     with ThreadPoolExecutor(max_workers=OPENAI_WORKERS) as executor:
-        future_to_idx = {executor.submit(paraphrase, t): i for i, t in enumerate(texts)}
+        future_to_idx = {executor.submit(paraphrase, t, pct): i for i, t in enumerate(texts)}
         for future in as_completed(future_to_idx):
             idx = future_to_idx[future]
             results[idx] = future.result()
@@ -602,28 +604,38 @@ def main():
     orzamir_det_unwat = detect_orzamir(orzamir_unwat_texts, oz_tokenizer, WATERMARK_KEY)
 
     # ------------------------------------------------------------------
-    # STEP 5: Robustness to paraphrasing
+    # STEP 5: Robustness to paraphrasing at multiple strengths
     # ------------------------------------------------------------------
     print("\n--- Robustness to paraphrasing (parallel API calls) ---")
 
-    # Paraphrase all 60 texts in one parallel batch
     all_para_texts = stanford_wat_texts + asteroid_wat_texts + orzamir_wat_texts
-    print(f"  Paraphrasing {len(all_para_texts)} texts in parallel...")
-    all_paraphrased = paraphrase_batch(all_para_texts)
-
     n = len(prompts)
-    stanford_paraphrased = all_paraphrased[:n]
-    asteroid_paraphrased = all_paraphrased[n:2*n]
-    orzamir_paraphrased = all_paraphrased[2*n:]
+    paraphrase_by_pct = {}  # pct -> {stanford, asteroid, orzamir}
 
-    print("  Detecting watermark in paraphrased Stanford texts...")
-    stanford_det_para = detect_stanford(stanford_paraphrased, MODEL_NAME, WATERMARK_KEY)
-    print("  Detecting watermark in paraphrased Asteroid texts...")
-    asteroid_model.cuda()
-    asteroid_det_para = detect_asteroid(prompts, asteroid_paraphrased, asteroid_model, MODEL_NAME, asteroid_messages)
-    asteroid_model.cpu(); torch.cuda.empty_cache()
-    print("  Detecting watermark in paraphrased OrZamir texts...")
-    orzamir_det_para = detect_orzamir(orzamir_paraphrased, oz_tokenizer, WATERMARK_KEY)
+    for pct in PARAPHRASE_PCTS:
+        print(f"\n  [Paraphrase {pct}%]")
+        print(f"    Paraphrasing {len(all_para_texts)} texts at {pct}%...")
+        all_paraphrased = paraphrase_batch(all_para_texts, pct=pct)
+
+        stanford_paraphrased = all_paraphrased[:n]
+        asteroid_paraphrased = all_paraphrased[n:2*n]
+        orzamir_paraphrased = all_paraphrased[2*n:]
+
+        print(f"    Detecting Stanford at {pct}%...")
+        s_det = detect_stanford(stanford_paraphrased, MODEL_NAME, WATERMARK_KEY)
+        print(f"    Detecting Asteroid at {pct}%...")
+        asteroid_model.cuda()
+        a_det = detect_asteroid(prompts, asteroid_paraphrased, asteroid_model, MODEL_NAME, asteroid_messages)
+        asteroid_model.cpu(); torch.cuda.empty_cache()
+        print(f"    Detecting OrZamir at {pct}%...")
+        oz_det = detect_orzamir(orzamir_paraphrased, oz_tokenizer, WATERMARK_KEY)
+
+        paraphrase_by_pct[pct] = {"stanford": s_det, "asteroid": a_det, "orzamir": oz_det}
+
+    # Keep 100% results as the canonical "paraphrased" for backward-compat summary
+    stanford_det_para = paraphrase_by_pct[100]["stanford"]
+    asteroid_det_para = paraphrase_by_pct[100]["asteroid"]
+    orzamir_det_para  = paraphrase_by_pct[100]["orzamir"]
 
     # No-prompt attack (Asteroid only): decode without providing the prompt
     print("\n--- No-prompt attack detection (Asteroid only) ---")
@@ -735,6 +747,9 @@ def main():
             "asteroid": {"watermarked_precision": asteroid_det_wat, "unwatermarked_precision": asteroid_det_unwat, "paraphrased_precision": asteroid_det_para,
                          "no_prompt_watermarked": asteroid_no_prompt_wat, "no_prompt_unwatermarked": asteroid_no_prompt_unwat},
             "orzamir": {"watermarked_scores": orzamir_det_wat, "unwatermarked_scores": orzamir_det_unwat, "paraphrased_scores": orzamir_det_para},
+            "paraphrase_by_pct": {str(pct): {
+                "stanford": v["stanford"], "asteroid": v["asteroid"], "orzamir": v["orzamir"]
+            } for pct, v in paraphrase_by_pct.items()},
         },
         "diversity": diversity_scores,
         "bits_sent": {
@@ -873,17 +888,28 @@ def main():
     plt.close()
     print("  Saved results/plots/pr_correctness.png")
 
-    # Plot 2b-2: Paraphrase PR — paraphrased vs unwatermarked, all 3 methods
-    fig, ax = plt.subplots(figsize=(8, 6))
-    r = _pr_curve_data([-p for p in stanford_det_para], [-p for p in stanford_det_unwat])
-    if r: ax.plot(r[1], r[0], 'b-', label=f'Stanford (AUC={r[2]:.2f})')
-    r = _pr_curve_data(asteroid_det_para, asteroid_det_unwat)
-    if r: ax.plot(r[1], r[0], 'r-', label=f'Asteroid (AUC={r[2]:.2f})')
-    r = _pr_curve_data(orzamir_det_para, orzamir_det_unwat)
-    if r: ax.plot(r[1], r[0], 'g-', label=f'OrZamir (AUC={r[2]:.2f})')
-    ax.set_xlabel('Recall'); ax.set_ylabel('Precision')
-    ax.set_title('Paraphrase PR Curve (Paraphrased Watermarked vs Unwatermarked)')
-    ax.legend(); ax.set_xlim([0, 1.05]); ax.set_ylim([0, 1.05])
+    # Plot 2b-2: Paraphrase PR — one subplot per method, one line per paraphrase strength
+    pct_colors = {25: 'lightcoral', 50: 'orange', 75: 'cornflowerblue', 100: 'darkblue'}
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    for ax, (method, neg, neg_label) in zip(axes, [
+        ('Stanford', True, 'Stanford'),
+        ('Asteroid', False, 'Asteroid'),
+        ('OrZamir', False, 'OrZamir'),
+    ]):
+        key = method.lower()
+        for pct in PARAPHRASE_PCTS:
+            det = paraphrase_by_pct[pct][key]
+            if neg:
+                r = _pr_curve_data([-p for p in det], [-p for p in stanford_det_unwat])
+            elif key == 'asteroid':
+                r = _pr_curve_data(det, asteroid_det_unwat)
+            else:
+                r = _pr_curve_data(det, orzamir_det_unwat)
+            if r:
+                ax.plot(r[1], r[0], color=pct_colors[pct], label=f'{pct}% (AUC={r[2]:.2f})')
+        ax.set_xlabel('Recall'); ax.set_ylabel('Precision')
+        ax.set_title(f'{neg_label} — Paraphrase Robustness')
+        ax.legend(fontsize=8); ax.set_xlim([0, 1.05]); ax.set_ylim([0, 1.05])
     plt.tight_layout()
     plt.savefig(os.path.join(_PLOTS, 'pr_paraphrase.png'), dpi=300, bbox_inches='tight')
     plt.close()

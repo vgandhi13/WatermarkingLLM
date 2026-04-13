@@ -57,7 +57,7 @@ class BatchWatermarkDecoder:
             mapping = pickle.load(f)
         self.loaded_wrapper = SimpleKMeansWrapper.__new__(SimpleKMeansWrapper)
         self.loaded_wrapper.mapping = mapping
-        self.loaded_wrapper.codeword_length = 128
+        self.loaded_wrapper.codeword_length = 256
     def batch_decode(self, prompts, generated_texts, batch_size=1):
         """
         Decode watermarks from multiple texts simultaneously.
@@ -91,7 +91,7 @@ class BatchWatermarkDecoder:
 
             batch_results = []
             for b in range(actual_batch_size):
-                randomLinearCode = RandomLinearCode(n=128, k=20, seed=42)
+                randomLinearCode = RandomLinearCode(n=256, k=20, seed=42)
                 codeword = randomLinearCode.encode(batch_messages[b])
                 result = self.decode(batch_prompts[b], batch_texts[b], batch_inputs['input_ids'][b], batch_full_inputs[b], logits[b], codeword)
                 batch_results.append(result)
@@ -177,8 +177,8 @@ class BatchWatermarkDecoder:
                     avg_embedding = sum(embeddings) / len(embeddings)
                                 # Reshape to (1, -1) since predict expects a 2D array
                     avg_embedding = np.array(avg_embedding).reshape(1, -1)
-                    # idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(codeword)
-                    idx = new_index = self.loaded_wrapper.predict(avg_embedding, "/work/pi_adamoneill_umass_edu/WatermarkingLLM/kmeans_model_2040_n3_minibatch.pkl")  
+                    idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(codeword[0])
+                    #idx = new_index = self.loaded_wrapper.predict(avg_embedding, "/work/pi_adamoneill_umass_edu/WatermarkingLLM/kmeans_model_2040_n3_minibatch.pkl")  
                 # print('Index from Kmeans - decoder', idx)
 
                 #Next Bit Approach

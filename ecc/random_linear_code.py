@@ -315,7 +315,7 @@ class RandomLinearCode:
 # Example usage
 if __name__ == "__main__":
     # Create a random (128,20) binary linear code
-    code = RandomLinearCode(n=128, k=20, seed=42)
+    code = RandomLinearCode(n=256, k=20, seed=42)
     
     # print(f"Code: {code}")
     # print(f"Generator matrix G shape: {code.G.shape}")
@@ -348,27 +348,33 @@ if __name__ == "__main__":
     # print("\n=== Testing Binary Message Encoding ===")
     message = [1]*20  # 20-bit message
     codeword = code.encode(message)
-    # print(f"Message length: {len(message)}")
-    # print(f"Codeword length: {len(codeword)}")
-    # print(f"Message: {message}")
-    # print(f"Codeword: {codeword}")
-    # print(f"Codeword type: {type(codeword)}")
+    print(f"Message length: {len(message)}")
+    print(f"Codeword length: {len(codeword)}")
+    print(f"Message: {message}")
+    print(f"Codeword: {codeword}")
+    one_count, zero_count = 0, 0
+    for i in codeword:
+        if i == '1':
+            one_count+=1
+        else:
+            zero_count+=1
+    print(one_count, zero_count)
     
-    corrupted_codeword = codeword[:2] + '1' + codeword[3:]
-    print(f"Corrupted codeword: {corrupted_codeword}")
-    # Test decoding
-    # decoded_message, expected_codeword, distance = code.decode(corrupted_codeword)
-    # print(f"Decoded message: {decoded_message}")
-    # print(f"Expected codeword: {expected_codeword}")
-    # print(f"Hamming distance: {distance}")
-    # original_message_str = ''.join(str(b) for b in message)
-    # print(f"Decoding successful: {original_message_str == decoded_message}")
-    expected_codeword_str = '11001101001101110110111110010011001000010011001111111010011001110101101000010100010001100101010001101001010011101000001000011110'
-    # # convert corrupted_codeword to a bit map
-    # corrupted_bit_map = defaultdict(list)
-    # for i in range(len(corrupted_codeword)):
-    #     corrupted_bit_map[i].append(corrupted_codeword[i])
-    # decoded_message, expected_codeword, distance = code.decode(corrupted_codeword, corrupted_bit_map)
+    # corrupted_codeword = codeword[:2] + '1' + codeword[3:]
+    # print(f"Corrupted codeword: {corrupted_codeword}")
+    # # Test decoding
+    # # decoded_message, expected_codeword, distance = code.decode(corrupted_codeword)
+    # # print(f"Decoded message: {decoded_message}")
+    # # print(f"Expected codeword: {expected_codeword}")
+    # # print(f"Hamming distance: {distance}")
+    # # original_message_str = ''.join(str(b) for b in message)
+    # # print(f"Decoding successful: {original_message_str == decoded_message}")
+    # expected_codeword_str = '11001101001101110110111110010011001000010011001111111010011001110101101000010100010001100101010001101001010011101000001000011110'
+    # # # convert corrupted_codeword to a bit map
+    # # corrupted_bit_map = defaultdict(list)
+    # # for i in range(len(corrupted_codeword)):
+    # #     corrupted_bit_map[i].append(corrupted_codeword[i])
+    # # decoded_message, expected_codeword, distance = code.decode(corrupted_codeword, corrupted_bit_map)
     # print('DISTANCE: ', distance)
     # corrupted_array = np.array([int(bit) for bit in corrupted_codeword], dtype=np.uint8)
     # expected_array = np.array([int(bit) for bit in expected_codeword_str], dtype=np.uint8)
@@ -377,10 +383,7 @@ if __name__ == "__main__":
 
 # need to debug the decode function second score 
 
-    corrupted_bit_map = {111: ['1', '1', '1'], 118: ['1', '0'], 106: ['1', '1', '1', '1', '1', '1'], 64: ['0', '1', '1', '1', '1'], 114: ['1', '0', '0', '1', '0', '1', '0', '0', '1', '0', '0', '0', '0'], 38: ['1', '0'], 75: ['1', '1', '1'], 33: ['0'], 91: ['1', '0', '1', '1', '1'], 125: ['1', '1', '0', '1', '0', '1', '1', '1', '1', '0', '0'], 29: ['0', '1', '1', '1'], 107: ['0', '1', '0', '1', '1', '1', '1', '0', '1'], 86: ['0'], 48: ['0', '1', '1', '1'], 20: ['1', '0', '1', '1', '1', '1', '1', '0', '0', '0', '0'], 34: ['1', '0', '1', '0', '1'], 59: ['1', '1'], 8: ['0', '0', '1', '1'], 70: ['1'], 103: ['0', '0', '1'], 24: ['1', '1', '0'], 31: ['0', '1', '1', '0', '1', '1', '1'], 87: ['0', '0', '1', '0', '0', '1', '0'], 49: ['1', '0', '0', '1', '0', '0', '1', '0', '1', '0', '0', '1', '1', '1'], 74: ['1', '1', '1'], 54: ['0', '1', '0', '1', '0', '0', '1', '1', '1'], 68: ['1', '1', '0', '1', '0', '0', '0', '0'], 51: ['1', '0'], 14: ['0', '0', '1', '0'], 124: ['0', '1', '1', '1', '1'], 122: ['0', '1', '1', '1'], 65: ['1', '0', '1'], 25: ['0', '1', '1'], 22: ['0', '1', '0'], 28: ['0', '1', '1'], 3: ['1', '1', '1', '0', '1', '0', '1', '1', '0'], 121: ['0'], 97: ['1', '1', '0', '0'], 66: ['1', '1', '0', '1', '1', '1', '1', '0'], 9: ['0', '0', '1', '0', '0', '1'], 32: ['1'], 21: ['0'], 113: ['1', '0', '1', '0', '1', '0', '1', '1', '0', '1'], 95: ['1', '1', '0', '1', '1', '1', '1', '1'], 123: ['0', '0', '0', '1'], 76: ['1', '1', '0', '0', '1', '1', '0', '0', '0', '1', '0'], 120: ['1', '0', '0', '1', '1', '1'], 5: ['0', '1', '0', '1'], 101: ['0', '1', '0', '1', '0'], 10: ['0', '1', '1'], 119: ['1', '1', '0', '1', '1'], 27: ['0', '1', '1', '1', '1', '0', '1', '0'], 15: ['0'], 100: ['0', '1', '0', '1', '0', '1', '1', '0'], 88: ['1', '1'], 115: ['1', '1'], 62: ['1', '1', '0', '1', '0'], 94: ['1', '1', '0', '1', '0'], 61: ['1', '1', '0', '1', '0'], 127: ['1', '1'], 80: ['1', '1', '1', '0'], 43: ['1'], 35: ['0'], 18: ['1', '1', '0'], 78: ['0'], 19: ['1', '1', '1', '0', '1'], 98: ['1', '0', '1'], 104: ['0', '1'], 6: ['1', '1', '1', '1', '1', '1'], 117: ['1', '1'], 105: ['1', '1', '1', '1'], 11: ['1'], 42: ['0', '1', '0'], 40: ['1'], 110: ['0', '1', '0', '1'], 52: ['1', '1', '0', '0', '1', '1', '0'], 89: ['1', '0'], 126: ['0', '1'], 39: ['0', '1'], 90: ['0', '0', '1'], 81: ['0'], 2: ['0'], 0: ['0', '0'], 26: ['0'], 73: ['1'], 102: ['0', '1'], 36: ['1', '1', '1'], 53: ['1', '1', '1'], 79: ['1', '0', '1', '0'], 56: ['1'], 116: ['1', '1', '0'], 30: ['0'], 109: ['1', '1', '0'], 47: ['0'], 63: ['1', '1', '1'], 67: ['1', '1', '1', '0'], 57: ['1']}
 
-    decoded_message, expected_codeword, distance = code.decode(corrupted_codeword, decoded_index_bit_map=corrupted_bit_map)
-    print('DISTANCE: ', distance)
 
 
 

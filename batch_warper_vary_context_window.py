@@ -149,7 +149,7 @@ class BatchTopPLogitsWarper(LogitsProcessor):
         codewords = []
         if crypto_scheme == 'RANDOM':
             for message in batch_messages:
-                randomLinearCode = RandomLinearCode(n=128, k=20, seed=42)
+                randomLinearCode = RandomLinearCode(n=256, k=20, seed=42)
                 codeword = randomLinearCode.encode(message)
                 codewords.append([codeword, randomLinearCode])
                 print("USED RANDOM LINEAR CODE")
@@ -170,9 +170,11 @@ class BatchTopPLogitsWarper(LogitsProcessor):
             mapping = pickle.load(f)
         self.loaded_wrapper = SimpleKMeansWrapper.__new__(SimpleKMeansWrapper)
         self.loaded_wrapper.mapping = mapping
-        self.loaded_wrapper.codeword_length = 128
+        self.loaded_wrapper.codeword_length = 256
         print('USING saved_wrapper_kmeans_2040_n3_minibatch.pkl - minibatch one')
-        
+        self.codeword_length = len(self.codewords[0][0])
+
+
         # Initialize state for each sequence in the batch
         for b in range(batch_size):
             if hash_scheme == 'hashlib':
@@ -214,8 +216,8 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                 avg_embedding = sum(embeddings) / len(embeddings)
                 # Reshape to (1, -1) since predict expects a 2D array
                 avg_embedding = np.array(avg_embedding).reshape(1, -1)
-                # idx = self.kmeans_model.predict(avg_embedding)[0] % len(self.codewords[b][0])
-                idx = self.loaded_wrapper.predict(avg_embedding, "/work/pi_adamoneill_umass_edu/WatermarkingLLM/kmeans_model_2040_n3_minibatch.pkl")
+                idx = self.kmeans_model.predict(avg_embedding)[0] % self.codeword_length
+                # idx = self.loaded_wrapper.predict(avg_embedding, "/work/pi_adamoneill_umass_edu/WatermarkingLLM/kmeans_model_2040_n3_minibatch.pkl")
                 # print('Avg embedding:', avg_embedding)
                 # idx = self.loaded_wrapper.predict(avg_embedding)
                 # print('Index:', idx)
@@ -227,9 +229,9 @@ class BatchTopPLogitsWarper(LogitsProcessor):
             # print('Encoder index kmeans:', idx)
             
             # Get the bit to encode
-            # print(self.codewords[b][0])
-            # print(self.codewords[b][0][0])
-            # print('Bit to encode:', self.codewords[b][0][idx])
+            print(self.codewords[b])
+            print(self.codewords[b][0])
+            print('Bit to encode:', self.codewords[b][0][idx])
             self.bit.append(self.codewords[b][0][idx])
             
             # Initialize other state variables
@@ -313,8 +315,8 @@ class BatchTopPLogitsWarper(LogitsProcessor):
                                     # Reshape to (1, -1) since predict expects a 2D array
                         # print('Avg embedding:', avg_embedding)
                         avg_embedding = np.array(avg_embedding).reshape(1, -1)
-                        idx = new_index = self.loaded_wrapper.predict(avg_embedding, "/work/pi_adamoneill_umass_edu/WatermarkingLLM/kmeans_model_2040_n3_minibatch.pkl")
-                        # idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % len(self.codewords[b][0])
+                        # idx = new_index = self.loaded_wrapper.predict(avg_embedding, "/work/pi_adamoneill_umass_edu/WatermarkingLLM/kmeans_model_2040_n3_minibatch.pkl")
+                        idx = new_index = self.kmeans_model.predict(avg_embedding)[0] % self.codeword_length
                         #print('Encoder index kmeans:', idx)
 
                     #Next Bit Approach

@@ -174,7 +174,7 @@ def load_wrapper_from_pickle(filepath, kmeans_model_path):
         mapping = pickle.load(f)
     wrapper = SimpleKMeansWrapper(kmeans_model_path)
     wrapper.mapping = mapping
-    wrapper.codeword_length = 128
+    wrapper.codeword_length = 256
     return wrapper
 
 
